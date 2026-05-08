@@ -10,12 +10,17 @@ Creates a new organization, a default user inside it, and the first API key for 
 
 ```json
 {
-  "name": "acme corp"        // optional, used as a label
+  "org_id": "acme",          // optional; auto-generated when omitted
+  "name":   "acme corp"      // optional; label for the first key
 }
 ```
 
+<ParamField body="org_id" type="string">
+  Optional org id. Auto-generated as `org_<10-char base62>` when omitted. Must be **alphanumeric** (with `-` or `_` allowed) and **≤ 64 chars**. Server returns `409 Conflict` if the id already exists.
+</ParamField>
+
 <ParamField body="name" type="string">
-  Human-readable label for the org. Optional.
+  Human-readable label for the org's first API key. Optional, max 64 chars.
 </ParamField>
 
 ## Response — `201`
@@ -83,3 +88,10 @@ api_key = data["api_key"]   # store this securely
 <Note>
   This endpoint is unauthenticated by design — anyone can create an org. To gate it (e.g. private launch), put your existing auth provider in front (Auth0, Clerk) and only forward to `/signup` after their checks pass.
 </Note>
+
+## Errors
+
+| Status | When |
+| --- | --- |
+| `409 Conflict` | The `org_id` you supplied is already in use, or hash collision on key minting. |
+| `422 Unprocessable Entity` | `org_id` failed the alphanumeric / length validation. |

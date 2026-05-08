@@ -5,29 +5,38 @@ description: "Every exception class and the SDK's automatic retry behavior."
 
 All Tex exceptions inherit from `tex.TexError`. You almost always want to catch one of:
 
-| Class | Status | When |
-| --- | --- | --- |
-| [`BadRequestError`](#badrequesterror) | 400 | Malformed payload |
-| [`AuthenticationError`](#authenticationerror) | 401 | Bad / expired key |
-| [`PermissionDeniedError`](#permissiondeniederror) | 403 | Key revoked or lacks scope |
-| [`NotFoundError`](#notfounderror) | 404 | Unknown resource |
-| [`UnprocessableEntityError`](#unprocessableentityerror) | 422 | Pydantic validation failure |
-| [`RateLimitError`](#ratelimiterror) | 429 | Daily quota exceeded |
-| [`InternalServerError`](#internalservererror) | 5xx | Our problem; SDK retried |
-| [`APITimeoutError`](#apitimeouterror) | — | Network or server too slow |
-| [`APIConnectionError`](#apiconnectionerror) | — | DNS, TLS, connection reset |
+| Class | Status | Inherits | When |
+| --- | --- | --- | --- |
+| [`BadRequestError`](#badrequesterror) | 400 | `APIStatusError` | Malformed payload |
+| [`AuthenticationError`](#authenticationerror) | 401 | `APIStatusError` | Bad / expired key |
+| [`PermissionDeniedError`](#permissiondeniederror) | 403 | `APIStatusError` | Key revoked or lacks scope |
+| [`NotFoundError`](#notfounderror) | 404 | `APIStatusError` | Unknown resource |
+| [`ConflictError`](#conflicterror) | 409 | `APIStatusError` | Resource exists (e.g. duplicate org_id) |
+| [`UnprocessableEntityError`](#unprocessableentityerror) | 422 | `APIStatusError` | Pydantic validation failure |
+| [`RateLimitError`](#ratelimiterror) | 429 | `APIStatusError` | Daily quota exceeded |
+| [`InternalServerError`](#internalservererror) | 5xx | `APIStatusError` | Our problem; SDK retried |
+| [`APITimeoutError`](#apitimeouterror) | — | `APIConnectionError` → `APIError` | Network or server too slow |
+| [`APIConnectionError`](#apiconnectionerror) | — | `APIError` | DNS, TLS, connection reset |
+| [`APIResponseValidationError`] | — | `APIError` | Server returned an unexpected shape |
+
+`TexHTTPError` (alias of `APIStatusError`) and `TexAuthError` (alias of `AuthenticationError`) are kept for backward compatibility.
 
 ## Common shape
 
-Every exception carries:
-
 ```python
-e.status_code     # int | None
+# All TexError subclasses
 e.message         # human-readable
-e.details         # dict — server's full JSON, may include field-level errors
+
+# APIStatusError subclasses (everything with an HTTP status — see "Inherits" column above)
+e.status_code     # int
 e.request_id      # X-Correlation-ID — quote in support tickets
+e.details         # dict — server's full JSON, may include field-level errors
 e.response_text   # raw response body, capped at 2KB
 ```
+
+<Warning>
+  `APITimeoutError` and `APIConnectionError` are **network errors**, not HTTP errors — they don't have `status_code`, `request_id`, `details`, or `response_text` because the request never produced a response. Catch them separately.
+</Warning>
 
 ```python
 from tex import Tex, RateLimitError, AuthenticationError, APITimeoutError, BadRequestError
@@ -88,13 +97,22 @@ Status 422. FastAPI's Pydantic validation rejected the payload. The SDK builds p
 
 ### `RateLimitError`
 
-Status 429. You hit the daily quota. The SDK does **not** retry these. Wait until 00:00 UTC, or see [Cost control](/concepts/usage-billing#cost-control-patterns).
+Status 429. The SDK retries on `429` like other transient codes (with exponential backoff and `Retry-After` honored), so by the time you see this exception the SDK has already exhausted retries.
+
+For **daily-quota 429s** (the normal case), retries are futile until midnight UTC — set `max_retries=0` for paths where you'd rather fail fast and degrade:
 
 ```python
 try:
     tex.recall(q=q, session_id=sid)
 except RateLimitError as e:
     return generate_without_memory(q)   # graceful degradation
+```
+
+The `e.details` payload tells you which cap fired (`tokens_in_daily` or `tokens_out_daily`) and when it resets:
+
+```python
+e.details
+# {"error":"quota_exceeded","kind":"tokens_in_daily","used":1000123,"limit":1000000,"period":"day_utc","period_start":"2026-05-08T00:00:00+00:00","message":"…"}
 ```
 
 ### `InternalServerError`
@@ -121,11 +139,6 @@ DNS, TLS, or socket-level failure. Same retry behavior as `APITimeoutError`. If 
 The SDK retries automatically on:
 
 - Status codes: `408`, `429`, `500`, `502`, `503`, `504`
-
-  <Note>
-    `429` from the daily-quota path does **not** retry — that's a final state. Internal `429`s (rate-limited at the LB layer) do retry.
-  </Note>
-
 - `httpx.TimeoutException`
 - `httpx.HTTPError` (network)
 
@@ -135,7 +148,11 @@ Default: **2 retries** with exponential backoff (0.5s, 1s). Override:
 tex = Tex(api_key=..., max_retries=5)
 ```
 
-The `Retry-After` header is honored — if the server says wait 3 seconds, the SDK waits at least 3.
+The `Retry-After` header is honored — if the server says wait 3 seconds, the SDK waits at least 3 (not capped at the backoff value).
+
+<Note>
+  `429` from the daily-quota path retries the same way other 429s do — but you'll still be over quota when the retry hits, so the `RateLimitError` ultimately surfaces. If that round-trip waste matters, set `max_retries=0` on quota-sensitive paths.
+</Note>
 
 ## Idempotency
 

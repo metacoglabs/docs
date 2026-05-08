@@ -23,9 +23,12 @@ Counted with `tiktoken cl100k_base` to match `text-embedding-3-large`.
   </Card>
 </CardGroup>
 
-Reset 00:00 UTC. Exceed → `429 RateLimitError` until reset.
+Reset 00:00 UTC. Exceeding **either** cap returns `429 RateLimitError` until reset:
 
-For most apps that's plenty: ~200 active users with 50 turns each per day before you'd hit the cap.
+- `tokens_in` is checked **before** doing work (pre-flight projection), so you can be rejected before any embedding cost is paid.
+- `tokens_out` is checked at request entry too, but a single in-flight request that crosses the cap is allowed to complete (we don't truncate responses mid-stream).
+
+For most apps the free tier is plenty: ~200 active users with 50 turns each per day before you'd hit the cap.
 
 ## Reading your usage
 
@@ -96,12 +99,14 @@ Use this to:
 
 ## Quota alerts
 
-We email you automatically at **80% of either daily cap.** No setup. Email goes to your account address.
-
 For programmatic alerting, poll `tex.usage.today()` from your own monitoring (e.g. once every 5 minutes from a cron) and page on:
 
 - `tokens_in_used / tokens_in_limit > 0.9`
 - A 10x jump in 1-minute deltas (probable runaway loop)
+
+<Note>
+  Server-side email alerts at 80% are on the roadmap, not yet shipped. For now, alerting is opt-in via your own monitoring against `usage.today()`.
+</Note>
 
 ## After the launch month
 

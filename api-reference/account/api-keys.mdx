@@ -5,7 +5,7 @@ description: "List, mint, and revoke API keys."
 
 ## `GET /me/api-keys`
 
-Lists keys for the current user. Same shape as `GET /me`'s `api_keys` field.
+Lists keys for the current **org** (sorted by `created_at` desc). Same shape as `GET /me`'s `api_keys` field.
 
 ```http
 GET /me/api-keys[?include_revoked=true]
@@ -29,11 +29,18 @@ Content-Type: application/json
 ### Body
 
 ```json
-{ "name": "laptop-dev" }
+{
+  "name":   "laptop-dev",
+  "scopes": ["*"]
+}
 ```
 
 <ParamField body="name" type="string">
-  Optional human-readable label.
+  Optional human-readable label, max 64 chars.
+</ParamField>
+
+<ParamField body="scopes" type="array[string]" default='["*"]'>
+  Permission scopes for the new key. Default `["*"]` means full access. Scoped keys (e.g. `["read"]`) are reserved for future use.
 </ParamField>
 
 ### Response — `201`

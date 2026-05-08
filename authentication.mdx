@@ -49,20 +49,30 @@ The constructor accepts any **one** of three auth modes:
     tex = Tex(
         access_token=jwt_from_my_auth_service,
         refresh_token=refresh_jwt,           # optional
+        org_id="org_abc",                    # required with BYO-JWT
+        user_id="u_xyz",                     # required with BYO-JWT
         base_url="https://api.getmetacognition.com",
     )
     ```
+
     Useful when you broker auth in a separate service and pass JWTs to your client.
+
+    <Warning>
+      Unlike the api-key flow, BYO-JWT does **not** auto-fill `org_id` / `user_id` from `/auth/verify`. Pass them explicitly — every `remember` and `recall` needs them in the request scope.
+    </Warning>
   </Tab>
-  <Tab title="Org + user login">
+  <Tab title="Org + user login (debug only)">
     ```python
     tex = Tex(
         org_id="org_abc",
         user_id="u_xyz",
-        base_url="https://api.getmetacognition.com",
+        base_url="http://localhost:8000",
     )
     ```
-    For internal tooling on a shared cluster — passwordless login. Not for customer-facing apps.
+
+    <Warning>
+      `/auth/login` is **disabled** in production (returns 403 unless the integration backend runs with `DEBUG=true`). Use this only for local development against a self-hosted backend. For production apps, use an API key.
+    </Warning>
   </Tab>
 </Tabs>
 

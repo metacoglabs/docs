@@ -32,7 +32,7 @@ Initial public release. Supermemory-compatible verbs (`add`, `search`, `profile`
 
 <CardGroup cols={2}>
   <Card title="Async client" icon="bolt">
-    `from tex import AsyncTex` — same API, awaitable methods. Targeting Q3.
+    Native async methods on a parallel `AsyncTex` class. Same API surface, awaitable. Targeting Q3.
   </Card>
   <Card title="Per-call user scoping" icon="users">
     `tex.recall(..., user_id=...)` without constructing a new client. Targeting 1.2.
@@ -42,5 +42,11 @@ Initial public release. Supermemory-compatible verbs (`add`, `search`, `profile`
   </Card>
   <Card title="Webhook ingestion" icon="webhook">
     Stream turns from your event bus directly into memory. Targeting Q4.
+  </Card>
+  <Card title="Server-side quota alerts" icon="bell">
+    Email notifications at 80% / 100% of either daily cap. Targeting 1.2.
+  </Card>
+  <Card title="Scoped API keys" icon="key">
+    `read` / `write` / `usage:read` scopes for principle-of-least-privilege keys.
   </Card>
 </CardGroup>

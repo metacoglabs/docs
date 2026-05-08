@@ -5,9 +5,9 @@ description: "One Tex key, partitioned per end-user."
 
 You're building a product where each of your customers has their own private memory. Two patterns; almost everyone wants Pattern A.
 
-## Pattern A — one Tex key, sub-user scoping (recommended)
+## Pattern A — one Tex key, encode end-user into session (recommended)
 
-You hold a single Tex API key in your secrets manager. Each end-user maps to a `user_id` you choose.
+You hold a single Tex API key in your secrets manager. End-users are partitioned by encoding their id into the `session_id` you pass on each call. One shared, long-lived client serves all your traffic.
 
 ```python deps.py
 from functools import cache
@@ -21,8 +21,6 @@ def shared_tex() -> Tex:
         base_url=os.environ["TEX_BASE_URL"],
     )
 ```
-
-Then encode the end-user into the `session_id`:
 
 ```python chat.py
 from fastapi import APIRouter, Header
@@ -46,11 +44,12 @@ def chat(body: ChatBody, x_user_id: str = Header(...)):
 | Number of Tex keys to manage | 1 |
 | Bills | 1 (yours) |
 | Dashboard access for end-users | None (you build your own UI) |
-| Memory isolation | By `session_id` — strict, no cross-talk |
+| Memory isolation | By `session_id` prefix — strict, no cross-talk |
+| Latency | Best (one warm client, no per-user TLS) |
 
-<Tip>
-  Per-call `user_id` scoping is on the SDK roadmap (1.2). Until then, encoding the end-user into the `session_id` is the cleanest pattern.
-</Tip>
+<Note>
+  The Tex constructor also accepts `user_id=...`, which sends the value as `scope.user_id` in the request body. That works today, but **the SDK scopes `user_id` per client, not per call** — using it for per-end-user partitioning would force one `Tex` instance per end-user, which is slow. Per-call `user_id` scoping is on the SDK roadmap (1.2). Until then, encode the end-user into `session_id`.
+</Note>
 
 ## Pattern B — one Tex key per end-user
 

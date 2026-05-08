@@ -45,10 +45,10 @@ if "messages" not in st.session_state:
 with st.sidebar:
     st.write("## Usage today")
     today = tex.usage.today()
-    st.progress(today.tokens_in_used / today.tokens_in_limit,
-                f"in:  {today.tokens_in_used:,} / {today.tokens_in_limit:,}")
-    st.progress(today.tokens_out_used / today.tokens_out_limit,
-                f"out: {today.tokens_out_used:,} / {today.tokens_out_limit:,}")
+    pct_in  = min(1.0, today.tokens_in_used  / max(1, today.tokens_in_limit))
+    pct_out = min(1.0, today.tokens_out_used / max(1, today.tokens_out_limit))
+    st.progress(pct_in,  f"in:  {today.tokens_in_used:,} / {today.tokens_in_limit:,}")
+    st.progress(pct_out, f"out: {today.tokens_out_used:,} / {today.tokens_out_limit:,}")
     st.caption(f"session: `{sid}`")
 
 # Render chat

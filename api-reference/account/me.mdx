@@ -4,7 +4,7 @@ description: "Read your org, user, and active API keys."
 api: "GET https://api.getmetacognition.com/me"
 ---
 
-Returns the authenticated org and user, plus the list of API keys belonging to that user.
+Returns the authenticated org and user, plus all API keys for that **org** (not just the calling user).
 
 ## Headers
 
@@ -18,12 +18,12 @@ Authorization: Bearer <access_token>
   The org bound to the JWT.
 </ResponseField>
 
-<ResponseField name="user_id" type="string">
-  The user bound to the JWT.
+<ResponseField name="user_id" type="string | null">
+  The user bound to the JWT. May be null for service tokens.
 </ResponseField>
 
 <ResponseField name="api_keys" type="array">
-  Array of API key metadata for this user. Plaintext keys are **not** included — only metadata. To get the plaintext value, mint a new key via [`POST /me/api-keys`](/api-reference/account/api-keys).
+  Array of API key metadata for the org (sorted by `created_at` desc). Plaintext keys are **not** included — only metadata. To get the plaintext value, mint a new key via [`POST /me/api-keys`](/api-reference/account/api-keys).
 </ResponseField>
 
 ## Example

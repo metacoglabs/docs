@@ -55,16 +55,15 @@ flowchart TD
 
 ## Tuning `top_k`
 
-Defaults to 8. Sensible ranges:
+Defaults: **15** in `active` mode, **25** in `deep` mode. Server caps at **30** regardless of the value you send. Sensible explicit values:
 
 | Use case | `top_k` |
 | --- | --- |
 | Live chat — small context window | 3–5 |
-| Live chat — large context window | 5–10 |
-| Summaries / digests | 15–30 |
-| "Tell me everything about X" | 30–50 |
+| Live chat — large context window | 8–15 |
+| Summaries / digests | 20–30 |
 
-Larger `top_k` → more `tokens_out` billed. Cap at 8 unless you have a reason.
+Larger `top_k` → more `tokens_out` billed. Send a smaller `top_k` if you only need a handful of hits.
 
 ## Confidence-gated fallback
 
@@ -109,11 +108,11 @@ For chatbot prompting, `turns` is usually enough. For analytical queries (e.g. "
 
 ```python
 hits = tex.recall(q="when did we discuss pricing?", session_id=sid, include_timeline=True)
-for event in hits.timeline:
-    print(event["timestamp"], event["summary"])
+if hits.timeline:
+    print(hits.timeline)   # a pre-rendered chronological summary string
 ```
 
-Returns a chronologically-ordered list of relevant events. Useful for "when did the user first mention X?" and similar temporal queries.
+`timeline` is an `Optional[str]` — a pre-rendered chronological summary the server walks the temporal index to build. Treat it as a paragraph to drop into a prompt, not a structured array. Useful for "when did the user first mention X?" queries.
 
 <Card title="Next: usage & billing" icon="receipt" href="/concepts/usage-billing">
   Tokens in / out, daily quotas, and cost control.

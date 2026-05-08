@@ -28,24 +28,28 @@ Content-Type: application/json
 }
 ```
 
-<ParamField body="scope.session_id" type="string" required>
-  Session to search.
+<ParamField body="scope.org_id" type="string" required>
+  Your org id (≥ 1 char). Server uses the JWT's `org_id` claim for tenancy regardless — this field is required for Pydantic validation only.
+</ParamField>
+
+<ParamField body="scope.session_id" type="string">
+  Session to search. Optional — falls back to the JWT's `session_id`.
 </ParamField>
 
 <ParamField body="q" type="string" required>
-  Natural-language query.
+  Natural-language query. `min_length=1`.
 </ParamField>
 
 <ParamField body="mode" type='"active" | "deep"' default='"active"'>
   Retrieval depth. See [retrieval](/concepts/retrieval).
 </ParamField>
 
-<ParamField body="top_k" type="integer" default="8">
-  Hits to return across all kinds.
+<ParamField body="top_k" type="integer">
+  Hits to return across all kinds. **Defaults to 15 (active) / 25 (deep).** Pydantic validates `1 ≤ top_k ≤ 50`; the runtime then caps at **30**, so values above 30 are silently clamped.
 </ParamField>
 
 <ParamField body="include_timeline" type="boolean" default="false">
-  Include a temporal index of relevant events.
+  Attach a chronological summary string to the response.
 </ParamField>
 
 ## Response — `200`
@@ -59,15 +63,15 @@ Content-Type: application/json
 </ResponseField>
 
 <ResponseField name="hits.entities" type="array">
-  Linked entities.
+  Linked entities. Each entity has `{id?, label, score}` — **not** the same shape as turns/observations.
 </ResponseField>
 
 <ResponseField name="confidence" type="number">
   Calibrated [0, 1].
 </ResponseField>
 
-<ResponseField name="timeline" type="array | null">
-  When `include_timeline=true`.
+<ResponseField name="timeline" type="string | null">
+  Pre-rendered chronological summary, set only when `include_timeline=true`.
 </ResponseField>
 
 <ResponseField name="mode" type="string">

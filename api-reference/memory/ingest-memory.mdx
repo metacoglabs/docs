@@ -34,28 +34,33 @@ Content-Type: application/json
       "timestamp": "2026-05-08T14:00:01Z"
     }
   ],
+  "options":  { "write_active": true, "write_passive": true },
   "metadata": { "channel": "support" }
 }
 ```
 
 <ParamField body="scope.org_id" type="string" required>
-  Your org id. Server ignores this for tenancy and uses the JWT's claim instead — pass it for forward compatibility.
+  Your org id (≥ 1 char). Server uses the JWT's `org_id` claim for tenancy regardless — this field is required for Pydantic validation only.
 </ParamField>
 
 <ParamField body="scope.user_id" type="string">
   End-user partition. Defaults to the JWT's user.
 </ParamField>
 
-<ParamField body="scope.session_id" type="string" required>
-  Conversation/channel/task id.
+<ParamField body="scope.session_id" type="string">
+  Conversation/channel/task id. Defaults to the JWT's `session_id` if set, else `"default-session"`.
 </ParamField>
 
 <ParamField body="turns" type="array" required>
-  Each turn: `{role, text, timestamp, observations?}`. See [memory model](/concepts/memory-model).
+  At least one turn (`min_length=1`). Each turn: `{role, text, timestamp, observations?}`. See [memory model](/concepts/memory-model).
+</ParamField>
+
+<ParamField body="options" type="object">
+  Optional dual-write toggles: `{ write_active: bool = true, write_passive: bool = true }`. Disabling either lets advanced callers bypass one of the storage tiers.
 </ParamField>
 
 <ParamField body="metadata" type="object">
-  Free-form metadata attached to the batch.
+  Free-form metadata. **Currently stored but not surfaced** in retrieval — reserved for future filters.
 </ParamField>
 
 ## Response — `202 Accepted`

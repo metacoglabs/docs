@@ -45,6 +45,10 @@ Tex(
 
 <ParamField path="access_token" type="str | None">
   Bring-your-own JWT. If set, the SDK skips the `api_key` exchange.
+
+  <Warning>
+    With BYO-JWT, the SDK does **not** auto-fill `org_id` / `user_id` from `/auth/verify`. Pass them explicitly to the constructor — `remember` and `recall` need them in the request `scope`.
+  </Warning>
 </ParamField>
 
 <ParamField path="refresh_token" type="str | None">

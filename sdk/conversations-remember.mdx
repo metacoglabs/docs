@@ -15,7 +15,7 @@ RememberResponse = tex.conversations.remember(
 ## Parameters
 
 <ParamField path="turns" type="list[dict]" required>
-  A list of turn dicts. Each turn:
+  A list of turn dicts. **At least one turn is required** (server rejects empty lists with `422`). Each turn:
 
   ```python
   {
@@ -37,8 +37,8 @@ RememberResponse = tex.conversations.remember(
 
 ## Returns
 
-<ResponseField name="job_id" type="str">
-  Stable identifier for this write. Use it to correlate with logs.
+<ResponseField name="job_id" type="str | None">
+  Stable identifier for this write. Use it to correlate with logs. Always present in production.
 </ResponseField>
 
 <ResponseField name="active_fragment_ids" type="list[str]">
@@ -46,11 +46,11 @@ RememberResponse = tex.conversations.remember(
 </ResponseField>
 
 <ResponseField name="passive_job_id" type="str | None">
-  ID of the background enrichment job. May be `null` for trivial batches.
+  Reserved for future async passive job tracking. Currently always `null`.
 </ResponseField>
 
-<ResponseField name="usage" type="Usage">
-  `tokens_in` / `tokens_out` for this call. `tokens_out` is typically 0 on `remember`.
+<ResponseField name="usage" type="Usage | None">
+  `tokens_in` / `tokens_out` for this call. `tokens_out` is typically 0 on `remember`. Always present in production.
 </ResponseField>
 
 ## Examples

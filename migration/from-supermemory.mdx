@@ -12,9 +12,17 @@ These calls work the same in Tex:
 | Supermemory | Tex |
 | --- | --- |
 | `client.add(content, container_tag=...)` | `tex.add(content, container_tag=...)` |
-| `client.search(q, ...)` | `tex.search(q, ...)` |
+| `client.search(q, ...)` | `tex.search.documents(q, ...)` (or `tex.search.memories(q, ...)`) |
 | `client.profile(container_tag, ...)` | `tex.profile(container_tag, ...)` |
 | `client.documents.list()` | `tex.documents.list()` |
+| `client.documents.get(id)` | `tex.documents.get(id)` |
+| `client.documents.update(id, ...)` | `tex.documents.update(id, ...)` |
+| `client.documents.delete(id)` | `tex.documents.delete(id)` |
+| `client.documents.batch_add([...])` | `tex.documents.batch_add([...])` |
+
+<Note>
+  Tex's `search` is a **resource**, not a callable — `tex.search(q)` will raise `TypeError`. Use `tex.search.documents(q)` or `tex.search.memories(q)`. There's also a generic `tex.search.execute(q)` alias for `tex.search.documents(q)` if you want a single entry point.
+</Note>
 
 Tex's `/v3/*` and `/v4/*` paths accept the **raw API key** as Bearer (no JWT exchange) for full Supermemory compatibility — the SDK routes them automatically.
 

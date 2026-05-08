@@ -32,8 +32,8 @@ RecallResponse = tex.recall(
   Retrieval depth. See [Retrieval](/concepts/retrieval).
 </ParamField>
 
-<ParamField path="top_k" type="int" default="8">
-  Number of hits across all kinds. Larger inflates `tokens_out`.
+<ParamField path="top_k" type="int">
+  Number of hits across all kinds. Defaults to **15** in `active` mode, **25** in `deep` mode. Server caps at **30** regardless of the value you send.
 </ParamField>
 
 <ParamField path="include_timeline" type="bool" default="false">
@@ -58,29 +58,41 @@ RecallResponse = tex.recall(
   Calibrated confidence in [0, 1]. P(hits relevant | confidence = c) ≈ c.
 </ResponseField>
 
-<ResponseField name="timeline" type="list | None">
-  Set when `include_timeline=True`.
+<ResponseField name="timeline" type="str | None">
+  A pre-rendered chronological summary of the relevant events. Set only when `include_timeline=True`.
 </ResponseField>
 
 <ResponseField name="mode" type="str">
   Echoes the request mode.
 </ResponseField>
 
-<ResponseField name="usage" type="Usage">
-  `tokens_in` / `tokens_out` billed for this call.
+<ResponseField name="usage" type="Usage | None">
+  `tokens_in` / `tokens_out` billed for this call. Always present in production.
 </ResponseField>
 
-### `RecallHit` shape
+### `RecallHit` shape (turns / observations)
 
 ```python
-@dataclass
+@dataclass(frozen=True)
 class RecallHit:
-    id: str             # stable; persists across recalls
+    id: str | None      # stable; persists across recalls
     text: str           # matched content
     score: float        # raw relevance, 0.0–1.0
-    kind: str           # "turn" | "observation" | "entity"
+    kind: str           # "turn" | "observation" | "entity" — defaults to "turn"
     timestamp: str | None
 ```
+
+### `RecallEntity` shape (entities only)
+
+```python
+@dataclass(frozen=True)
+class RecallEntity:
+    id: str | None
+    label: str          # the entity's surface label (e.g. "Acme")
+    score: float
+```
+
+`RecallEntity` is **not** the same shape as `RecallHit` — it has `label` instead of `text` and no `kind` / `timestamp`.
 
 ## Examples
 
@@ -118,9 +130,11 @@ hits = tex.recall(
     include_timeline=True,
 )
 
-for event in hits.timeline:
-    print(event["timestamp"], "—", event["summary"])
+if hits.timeline:
+    print(hits.timeline)   # a pre-rendered chronological summary string
 ```
+
+`timeline` is a free-form string that the server pre-renders by walking the temporal index for matched turns. Treat it as a paragraph to drop into a prompt, not a structured array.
 
 ### Multi-source recall
 
