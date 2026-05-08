@@ -1,0 +1,95 @@
+---
+title: "Slack bot"
+description: "Channel-scoped memory for a Slack workspace."
+---
+
+A Slack bot that remembers everything said in each channel and answers contextual questions when summoned.
+
+## Install
+
+```bash
+pip install tex-sdk slack-bolt python-dotenv
+```
+
+## Environment
+
+```bash
+SLACK_BOT_TOKEN=xoxb-...
+SLACK_APP_TOKEN=xapp-...        # if using socket mode
+TEX_API_KEY=tex_live_...
+TEX_BASE_URL=https://api.getmetacognition.com
+```
+
+## Code
+
+```python bot.py
+import os
+from datetime import datetime, timezone
+from slack_bolt import App
+from slack_bolt.adapter.socket_mode import SocketModeHandler
+from tex import Tex
+
+tex = Tex(api_key=os.environ["TEX_API_KEY"], base_url=os.environ["TEX_BASE_URL"])
+app = App(token=os.environ["SLACK_BOT_TOKEN"])
+
+def now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+def session_for(channel: str) -> str:
+    return f"slack-{channel}"
+
+@app.event("message")
+def remember_message(event, say):
+    """Remember every non-bot message in the channel."""
+    if event.get("subtype") or event.get("bot_id"):
+        return
+    tex.conversations.remember(
+        session_id=session_for(event["channel"]),
+        turns=[{
+            "role": "user",
+            "text": f"<@{event['user']}>: {event['text']}",
+            "timestamp": now_iso(),
+        }],
+    )
+
+@app.event("app_mention")
+def answer(event, say):
+    """When mentioned, answer with channel-scoped memory."""
+    query = event["text"].split(">", 1)[-1].strip()
+    if not query:
+        say("Ask me something — I'll dig through this channel's memory.")
+        return
+
+    hits = tex.recall(q=query, session_id=session_for(event["channel"]), top_k=5)
+
+    if not hits.hits.turns or hits.confidence < 0.2:
+        say(f"<@{event['user']}> I don't have anything relevant in memory yet.")
+        return
+
+    body = "\n".join(f"• {h.text}" for h in hits.hits.turns[:3])
+    say(f"<@{event['user']}> here's what I remember:\n{body}")
+
+if __name__ == "__main__":
+    SocketModeHandler(app, os.environ["SLACK_APP_TOKEN"]).start()
+```
+
+## Patterns
+
+<AccordionGroup>
+  <Accordion title="Per-user vs per-channel memory" icon="users">
+    - **Channel-scoped** (above): everyone in `#general` shares one memory pool. Best for team knowledge.
+    - **Per-user**: prefix the user id into the session: `f"slack-{channel}-{user}"`. Best for DMs or private notes.
+  </Accordion>
+  <Accordion title="Skip noisy messages" icon="filter">
+    Filter out joins, leaves, file uploads, and reactions before calling `remember`. Saves tokens and reduces noise in recall.
+  </Accordion>
+  <Accordion title="Acknowledge slow recalls" icon="hourglass">
+    `recall` takes 1–3s. Send a "🤔 thinking" reaction immediately, then update with the answer:
+
+    ```python
+    app.client.reactions_add(channel=event["channel"], timestamp=event["ts"], name="thinking_face")
+    # ... call tex.recall ...
+    app.client.reactions_remove(channel=event["channel"], timestamp=event["ts"], name="thinking_face")
+    ```
+  </Accordion>
+</AccordionGroup>

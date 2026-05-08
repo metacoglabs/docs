@@ -1,0 +1,167 @@
+---
+title: "conversations.remember"
+description: "Persist conversation turns to memory."
+---
+
+```python
+RememberResponse = tex.conversations.remember(
+    turns: list[dict],
+    *,
+    session_id: str,
+    metadata: dict | None = None,
+) -> RememberResponse
+```
+
+## Parameters
+
+<ParamField path="turns" type="list[dict]" required>
+  A list of turn dicts. Each turn:
+
+  ```python
+  {
+    "role": "user" | "assistant" | str,   # any free-form role
+    "text": "the thing said",
+    "timestamp": "2026-01-12T14:00:00Z",  # ISO 8601, UTC preferred
+    "observations": [...],                 # optional, see below
+  }
+  ```
+</ParamField>
+
+<ParamField path="session_id" type="str" required>
+  The conversation, channel, or task this batch belongs to.
+</ParamField>
+
+<ParamField path="metadata" type="dict | None">
+  Free-form metadata attached to the batch. Searchable in deep mode.
+</ParamField>
+
+## Returns
+
+<ResponseField name="job_id" type="str">
+  Stable identifier for this write. Use it to correlate with logs.
+</ResponseField>
+
+<ResponseField name="active_fragment_ids" type="list[str]">
+  IDs of the active-memory fragments. These are recallable immediately.
+</ResponseField>
+
+<ResponseField name="passive_job_id" type="str | None">
+  ID of the background enrichment job. May be `null` for trivial batches.
+</ResponseField>
+
+<ResponseField name="usage" type="Usage">
+  `tokens_in` / `tokens_out` for this call. `tokens_out` is typically 0 on `remember`.
+</ResponseField>
+
+## Examples
+
+### Single user turn
+
+```python
+tex.conversations.remember(
+    session_id="chat-1",
+    turns=[
+        {
+            "role": "user",
+            "text": "I prefer Python over JavaScript.",
+            "timestamp": "2026-05-08T10:00:00Z",
+        },
+    ],
+)
+```
+
+### Both sides of a turn
+
+```python
+tex.conversations.remember(
+    session_id="chat-1",
+    turns=[
+        {"role": "user",      "text": user_msg,   "timestamp": now_iso()},
+        {"role": "assistant", "text": assistant_msg, "timestamp": now_iso()},
+    ],
+)
+```
+
+### Backfill historical conversation
+
+```python
+turns = [
+    {"role": t["role"], "text": t["text"], "timestamp": t["ts"]}
+    for t in db.fetch_chat_history(conv_id)
+]
+
+# One big batch is far cheaper than per-turn calls
+tex.conversations.remember(session_id=f"chat-{conv_id}", turns=turns)
+```
+
+### Pre-extracted observations
+
+If you've already extracted structured facts on your side (e.g. with your own LLM call), pass them inline to skip Tex's extraction step:
+
+```python
+turns = [{
+    "role": "user",
+    "text": "I'm allergic to shellfish.",
+    "timestamp": "2026-05-08T10:00:00Z",
+    "observations": [
+        {"type": "preference", "predicate": "avoids", "value": "shellfish"},
+    ],
+}]
+
+tex.conversations.remember(session_id="chat-1", turns=turns)
+```
+
+## Behavior
+
+<Steps>
+  <Step title="Active write — synchronous">
+    The call returns after active memory persists (~150ms). The turn is recallable immediately.
+  </Step>
+  <Step title="Passive enrichment — asynchronous">
+    Observations and entities are extracted and indexed in the background. They become available in subsequent recalls within seconds to a minute.
+  </Step>
+</Steps>
+
+## Best practices
+
+<AccordionGroup>
+  <Accordion title="Batch — don't call once per turn" icon="layer-group">
+    Pass dozens of turns in one call:
+
+    ```python
+    # ✅ batched
+    tex.conversations.remember(session_id=sid, turns=all_new_turns)
+
+    # ❌ chatty — wastes RTTs
+    for turn in all_new_turns:
+        tex.conversations.remember(session_id=sid, turns=[turn])
+    ```
+  </Accordion>
+  <Accordion title="Use UTC ISO 8601 timestamps" icon="clock">
+    Tex parses any reasonable ISO format, but UTC strings (`...Z` suffix) avoid timezone surprises in temporal queries.
+  </Accordion>
+  <Accordion title="Don't remember system messages" icon="filter">
+    They consume tokens and add noise to recall. Filter to user + assistant turns only.
+  </Accordion>
+  <Accordion title="Push to a background queue on the request path" icon="forward">
+    Users shouldn't wait for `remember`. Move it to Celery / RQ / a background task:
+
+    ```python
+    answer = generate(text, context=tex.recall(q=text, session_id=sid))
+    queue.enqueue(tex.conversations.remember,
+                  session_id=sid,
+                  turns=[user_turn, assistant_turn])
+    return answer
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Idempotency
+
+Tex computes a stable hash per turn (text + timestamp + role). Re-sending the same turn is a no-op — there's no double-counting in active memory or in your token bill.
+
+This means you can safely retry a `remember` call after a network blip without worrying about duplicates.
+
+<Card title="Next: recall" icon="magnifying-glass" href="/sdk/recall">
+  Pull the relevant slice of memory.
+</Card>

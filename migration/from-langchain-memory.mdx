@@ -1,0 +1,131 @@
+---
+title: "From LangChain memory"
+description: "Migrate from BaseChatMemory subclasses to Tex retrieval."
+---
+
+LangChain's built-in memory classes (`ConversationBufferMemory`, `ConversationBufferWindowMemory`, `ConversationSummaryMemory`, `ConversationKGMemory`) are **buffers, summarizers, or graphs** that live inside your process. Tex is a **hosted retrieval service.**
+
+The migration moves you from "give the LLM the whole sliding window" to "give the LLM the relevant slice."
+
+## Mapping
+
+| LangChain | Tex equivalent |
+| --- | --- |
+| `ConversationBufferMemory` | `recall(q=user_msg, session_id=sid, top_k=20)` — surfaces the relevant 20 turns instead of the last N. |
+| `ConversationBufferWindowMemory(k=10)` | `recall(q=user_msg, session_id=sid, top_k=10)` — same `k`, but ranked by relevance. |
+| `ConversationSummaryMemory` | Tex stores extracted observations automatically. Surface them via `recall`'s `hits.observations`. |
+| `ConversationKGMemory` | Tex builds an entity graph in the background. Query via `hits.entities` (linked across observations). |
+
+## Migration
+
+<Tabs>
+  <Tab title="ConversationChain — before">
+    ```python
+    from langchain.chains import ConversationChain
+    from langchain.memory import ConversationBufferWindowMemory
+    from langchain_openai import ChatOpenAI
+
+    memory = ConversationBufferWindowMemory(k=10, return_messages=True)
+    chain = ConversationChain(
+        llm=ChatOpenAI(model="gpt-4o"),
+        memory=memory,
+    )
+
+    answer = chain.invoke({"input": user_msg})["response"]
+    ```
+  </Tab>
+  <Tab title="Tex retrieval — after">
+    ```python
+    from langchain.prompts import ChatPromptTemplate
+    from langchain_openai import ChatOpenAI
+    from tex import Tex
+
+    tex = Tex(api_key=..., base_url=...)
+
+    def chat(user_msg: str, sid: str) -> str:
+        hits = tex.recall(q=user_msg, session_id=sid, top_k=10)
+        memory = "\n".join(f"- {h.text}" for h in hits.hits.turns)
+
+        prompt = ChatPromptTemplate.from_messages([
+            ("system", "Relevant memory:\n{memory}"),
+            ("user", "{input}"),
+        ])
+        chain = prompt | ChatOpenAI(model="gpt-4o")
+
+        answer = chain.invoke({"memory": memory, "input": user_msg}).content
+
+        tex.conversations.remember(session_id=sid, turns=[
+            {"role":"user","text": user_msg, "timestamp": now_iso()},
+            {"role":"assistant","text": answer, "timestamp": now_iso()},
+        ])
+        return answer
+    ```
+  </Tab>
+</Tabs>
+
+## What you give up
+
+LangChain's memory classes are simple in-process objects with no network call. Tex adds:
+
+- Network round-trip (~150ms `remember`, ~1.7s `recall`) — your request gets slower.
+- A dependency on our service availability.
+
+What you gain:
+
+- Memory survives restarts, deploys, and shard moves.
+- Bounded prompt size — never hit the context limit.
+- Cross-session continuity — same user across days/weeks/months.
+- Confidence scoring — gate fallback paths.
+- Observation extraction — structured "facts" without writing prompts.
+
+For a hobby project, LangChain's buffer is fine. For anything user-facing in production, Tex's tradeoff is right.
+
+## Drop-in adapter (optional)
+
+If your codebase has dozens of LangChain chains and you'd rather not rewrite them all, wrap Tex in a `BaseChatMemory` subclass:
+
+```python tex_chat_memory.py
+from typing import Any
+from langchain.memory.chat_memory import BaseChatMemory
+from langchain.schema import BaseMessage, HumanMessage, AIMessage
+from tex import Tex
+
+class TexChatMemory(BaseChatMemory):
+    def __init__(self, tex: Tex, session_id: str, top_k: int = 10, **kw):
+        super().__init__(**kw)
+        self._tex = tex
+        self._session_id = session_id
+        self._top_k = top_k
+
+    @property
+    def memory_variables(self) -> list[str]:
+        return ["history"]
+
+    def load_memory_variables(self, inputs: dict[str, Any]) -> dict[str, Any]:
+        q = inputs.get("input", "")
+        hits = self._tex.recall(q=q, session_id=self._session_id, top_k=self._top_k)
+        history = "\n".join(f"- {h.text}" for h in hits.hits.turns)
+        return {"history": history}
+
+    def save_context(self, inputs: dict[str, Any], outputs: dict[str, Any]) -> None:
+        self._tex.conversations.remember(
+            session_id=self._session_id,
+            turns=[
+                {"role":"user","text": inputs["input"], "timestamp": now_iso()},
+                {"role":"assistant","text": outputs["response"], "timestamp": now_iso()},
+            ],
+        )
+
+    def clear(self) -> None:
+        # No-op — Tex memory persists by design
+        pass
+```
+
+Use it like any other LangChain memory:
+
+```python
+chain = ConversationChain(
+    llm=ChatOpenAI(),
+    memory=TexChatMemory(tex=tex, session_id="chat-1"),
+)
+```

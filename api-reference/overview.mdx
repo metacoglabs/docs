@@ -1,0 +1,102 @@
+---
+title: "Overview"
+description: "Use Tex directly over HTTPS — for languages and runtimes the SDK doesn't cover yet."
+---
+
+The Tex API is a small REST surface. If you're writing Python, prefer the [SDK](/sdk/installation) — it handles auth, refresh, and serialization. Use the raw API when you're in a language we don't ship a client for, or when you're building a sidecar.
+
+## Base URL
+
+```
+https://api.getmetacognition.com
+```
+
+## Auth
+
+Every Tex-unique endpoint expects:
+
+```http
+Authorization: Bearer <access_token>
+```
+
+Where `<access_token>` is a JWT obtained by exchanging your API key. See [`POST /auth/token-exchange`](/api-reference/auth/token-exchange).
+
+## Content type
+
+Always:
+
+```http
+Content-Type: application/json
+```
+
+## Correlation ID
+
+Every request gets an `X-Correlation-ID` (UUID) generated on the server if you don't supply one. The SDK generates one client-side. Pass it through your own logs to trace requests end-to-end:
+
+```http
+X-Correlation-ID: 4f1d8e3c-2a9b-4c0d-9e6f-1a2b3c4d5e6f
+```
+
+Quote this header in support tickets.
+
+## Errors
+
+Standard HTTP status codes:
+
+| Status | Meaning |
+| --- | --- |
+| `200` | OK |
+| `201` | Created (signup, key creation) |
+| `202` | Accepted (async ingestion) |
+| `204` | No content (key revoke) |
+| `400` | Bad payload |
+| `401` | Auth failure |
+| `403` | Forbidden |
+| `404` | Not found |
+| `422` | Validation error (FastAPI shape) |
+| `429` | Daily quota exceeded |
+| `5xx` | Our problem |
+
+Error body shape:
+
+```json
+{
+  "error": "HTTP 401",
+  "message": "Invalid token",
+  "details": null,
+  "timestamp": "2026-05-08T10:00:00Z",
+  "request_id": "..."
+}
+```
+
+## Rate limits
+
+Daily quota is enforced per-org. Currently:
+
+- `tokens_in`: 1,000,000 / day
+- `tokens_out`: 5,000,000 / day
+
+Reset 00:00 UTC. See [Usage & billing](/concepts/usage-billing).
+
+## Retries
+
+Recommended client-side policy: 2 retries with exponential backoff on `408`, `500`, `502`, `503`, `504`, and network errors. Honor the `Retry-After` header.
+
+Don't retry `400`, `401`, `403`, `404`, `422`, `429` — they're terminal.
+
+## Endpoint index
+
+<CardGroup cols={2}>
+  <Card title="Auth" icon="key" href="/api-reference/auth/signup">
+    /signup · /auth/token-exchange · /auth/refresh
+  </Card>
+  <Card title="Account" icon="user" href="/api-reference/account/me">
+    /me · /me/api-keys
+  </Card>
+  <Card title="Memory" icon="brain" href="/api-reference/memory/ingest-memory">
+    /ingestion/memory · /recall
+  </Card>
+  <Card title="Usage" icon="receipt" href="/api-reference/usage/today">
+    /usage/today · /usage/summary
+  </Card>
+</CardGroup>

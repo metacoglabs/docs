@@ -1,0 +1,146 @@
+---
+title: "Errors & retries"
+description: "Every exception class and the SDK's automatic retry behavior."
+---
+
+All Tex exceptions inherit from `tex.TexError`. You almost always want to catch one of:
+
+| Class | Status | When |
+| --- | --- | --- |
+| [`BadRequestError`](#badrequesterror) | 400 | Malformed payload |
+| [`AuthenticationError`](#authenticationerror) | 401 | Bad / expired key |
+| [`PermissionDeniedError`](#permissiondeniederror) | 403 | Key revoked or lacks scope |
+| [`NotFoundError`](#notfounderror) | 404 | Unknown resource |
+| [`UnprocessableEntityError`](#unprocessableentityerror) | 422 | Pydantic validation failure |
+| [`RateLimitError`](#ratelimiterror) | 429 | Daily quota exceeded |
+| [`InternalServerError`](#internalservererror) | 5xx | Our problem; SDK retried |
+| [`APITimeoutError`](#apitimeouterror) | — | Network or server too slow |
+| [`APIConnectionError`](#apiconnectionerror) | — | DNS, TLS, connection reset |
+
+## Common shape
+
+Every exception carries:
+
+```python
+e.status_code     # int | None
+e.message         # human-readable
+e.details         # dict — server's full JSON, may include field-level errors
+e.request_id      # X-Correlation-ID — quote in support tickets
+e.response_text   # raw response body, capped at 2KB
+```
+
+```python
+from tex import Tex, RateLimitError, AuthenticationError, APITimeoutError, BadRequestError
+
+try:
+    tex.recall(q=q, session_id=sid)
+except RateLimitError:
+    return cached_or_fallback()
+except AuthenticationError:
+    page_oncall("tex auth broken")
+    raise
+except APITimeoutError:
+    return degraded_no_memory_response()
+except BadRequestError as e:
+    log.warning("bad payload: %s", e.details)
+    raise
+```
+
+## Per-class details
+
+### `BadRequestError`
+
+Returned when a payload is malformed. Common causes:
+
+- Missing required field on a turn (e.g. no `text`)
+- Invalid `mode` value on `recall`
+- Invalid `session_id` shape (must be a string)
+
+`e.details` includes a Pydantic-style `loc` list that tells you exactly which field broke.
+
+### `AuthenticationError`
+
+Status 401. The SDK already attempted a JWT refresh (once) before raising.
+
+```python
+try:
+    tex.recall(q=q, session_id=sid)
+except AuthenticationError as e:
+    if "Invalid API key" in e.message:
+        # Real bad-key situation
+        rotate_key_alarm()
+    else:
+        # JWT refresh failed — likely revoked
+        notify_user("please log in again")
+```
+
+### `PermissionDeniedError`
+
+Status 403. The credential is valid but lacks scope. Mostly relevant for keys you've scoped down (admin keys, read-only keys). For default keys this shouldn't fire.
+
+### `NotFoundError`
+
+Status 404. You referenced something that doesn't exist — typically a stale `key_id` on `DELETE /me/api-keys/{id}`.
+
+### `UnprocessableEntityError`
+
+Status 422. FastAPI's Pydantic validation rejected the payload. The SDK builds payloads for you, so this usually only fires when you've passed an unexpected type.
+
+### `RateLimitError`
+
+Status 429. You hit the daily quota. The SDK does **not** retry these. Wait until 00:00 UTC, or see [Cost control](/concepts/usage-billing#cost-control-patterns).
+
+```python
+try:
+    tex.recall(q=q, session_id=sid)
+except RateLimitError as e:
+    return generate_without_memory(q)   # graceful degradation
+```
+
+### `InternalServerError`
+
+Status 5xx. The SDK already retried (default 2x with exponential backoff). If you still see this, file a ticket with `e.request_id`.
+
+### `APITimeoutError`
+
+The request didn't return within `timeout`. The SDK retries on timeout, but ultimately surfaces `APITimeoutError` if all attempts fail.
+
+```python
+try:
+    hits = tex.recall(q=q, session_id=sid)
+except APITimeoutError:
+    hits = None   # fall back to no-memory generation
+```
+
+### `APIConnectionError`
+
+DNS, TLS, or socket-level failure. Same retry behavior as `APITimeoutError`. If you see this in production, check your egress proxy / firewall.
+
+## Built-in retries
+
+The SDK retries automatically on:
+
+- Status codes: `408`, `429`, `500`, `502`, `503`, `504`
+
+  <Note>
+    `429` from the daily-quota path does **not** retry — that's a final state. Internal `429`s (rate-limited at the LB layer) do retry.
+  </Note>
+
+- `httpx.TimeoutException`
+- `httpx.HTTPError` (network)
+
+Default: **2 retries** with exponential backoff (0.5s, 1s). Override:
+
+```python
+tex = Tex(api_key=..., max_retries=5)
+```
+
+The `Retry-After` header is honored — if the server says wait 3 seconds, the SDK waits at least 3.
+
+## Idempotency
+
+`remember` is idempotent (turn-hash dedup). `recall` and `usage.*` are read-only. Safe to retry any of them.
+
+<Card title="Next: REST API" icon="code" href="/api-reference/overview">
+  Direct HTTP integration without the SDK.
+</Card>

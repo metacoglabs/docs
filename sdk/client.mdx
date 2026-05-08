@@ -1,0 +1,144 @@
+---
+title: "Client & configuration"
+description: "Constructor reference, environment variables, lifecycle."
+---
+
+## `Tex(...)` constructor
+
+```python
+Tex(
+    api_key: str | None = None,
+    *,
+    base_url: str | None = None,
+    org_id: str | None = None,
+    user_id: str | None = None,
+    session_id: str | None = None,
+    access_token: str | None = None,
+    refresh_token: str | None = None,
+    timeout: float = 60.0,
+    max_retries: int = 2,
+    http2: bool = True,
+)
+```
+
+<ParamField path="api_key" type="str">
+  Your API key. Falls back to `TEX_API_KEY` env var.
+</ParamField>
+
+<ParamField path="base_url" type="str">
+  Base URL of the Tex API. Falls back to `TEX_BASE_URL`. Required for production:
+
+  - `https://api.getmetacognition.com`
+</ParamField>
+
+<ParamField path="org_id" type="str | None">
+  Default `org_id` for all requests. Optional — the SDK auto-fills from your JWT.
+</ParamField>
+
+<ParamField path="user_id" type="str | None">
+  Default `user_id`. Set this for end-user partitioning in multi-tenant SaaS.
+</ParamField>
+
+<ParamField path="session_id" type="str | None">
+  A default `session_id`. You usually pass this per-call instead.
+</ParamField>
+
+<ParamField path="access_token" type="str | None">
+  Bring-your-own JWT. If set, the SDK skips the `api_key` exchange.
+</ParamField>
+
+<ParamField path="refresh_token" type="str | None">
+  Companion to `access_token` — used for transparent refresh on 401.
+</ParamField>
+
+<ParamField path="timeout" type="float" default="60.0">
+  Per-request timeout in seconds.
+</ParamField>
+
+<ParamField path="max_retries" type="int" default="2">
+  Retries on transient errors (408 / 429 / 5xx / network). Exponential backoff.
+</ParamField>
+
+<ParamField path="http2" type="bool" default="true">
+  HTTP/2 multiplexing. Disable if your egress proxy strips it.
+</ParamField>
+
+## Environment variables
+
+| Variable | Purpose |
+| --- | --- |
+| `TEX_API_KEY` | Read by the constructor when `api_key=` is omitted. |
+| `TEX_BASE_URL` | Read by the constructor when `base_url=` is omitted. |
+
+A `.env` template:
+
+```bash
+TEX_API_KEY=tex_live_xxxxxxxxxxxxxxxxxxxxxxxx
+TEX_BASE_URL=https://api.getmetacognition.com
+```
+
+## Lifecycle
+
+The client maintains a pooled `httpx.Client` under the hood. **Construct once, reuse everywhere.**
+
+<Tabs>
+  <Tab title="✅ Module-level">
+    ```python
+    # settings.py
+    from functools import cache
+    from tex import Tex
+    import os
+
+    @cache
+    def tex() -> Tex:
+        return Tex(
+            api_key=os.environ["TEX_API_KEY"],
+            base_url=os.environ["TEX_BASE_URL"],
+        )
+    ```
+  </Tab>
+  <Tab title="✅ Context manager">
+    ```python
+    with Tex(api_key=...) as tex:
+        tex.recall(q="...", session_id="...")
+    # connection is closed on exit
+    ```
+  </Tab>
+  <Tab title="❌ Per-request">
+    ```python
+    @app.post("/chat")
+    def chat(req):
+        tex = Tex(api_key=...)   # opens a new TLS session every request
+        return tex.recall(...)
+    ```
+    This costs you the TCP+TLS handshake on every call.
+  </Tab>
+</Tabs>
+
+## Concurrency
+
+The client is **thread-safe for read traffic** (`recall`, `usage.today`).
+
+For write traffic under high RPS, push to a worker pool:
+
+```python
+from concurrent.futures import ThreadPoolExecutor
+pool = ThreadPoolExecutor(max_workers=16)
+
+def remember_async(turns, sid):
+    pool.submit(tex.conversations.remember, turns=turns, session_id=sid)
+```
+
+A native async client is on the roadmap. Open an issue if you need it sooner.
+
+## Closing
+
+```python
+tex.close()   # closes the underlying httpx.Client
+```
+
+Or use the context manager pattern (above) — `__exit__` calls `close()`.
+
+<Card title="Next: remember" icon="comments" href="/sdk/conversations-remember">
+  Push conversation turns into memory.
+</Card>

@@ -1,0 +1,93 @@
+---
+title: "From Redis chat history"
+description: "Replace your Redis-backed conversation log with Tex memory."
+---
+
+If your chatbot stores chat history in Redis (or Postgres, or Mongo) and dumps the whole thing into every prompt, this is the migration for you.
+
+## The pattern you're replacing
+
+```python before.py
+# Append every turn
+redis.rpush(f"hist:{sid}", json.dumps({"role":"user","text": user_msg}))
+redis.rpush(f"hist:{sid}", json.dumps({"role":"assistant","text": reply}))
+
+# Load the whole history into the prompt
+history = [json.loads(x) for x in redis.lrange(f"hist:{sid}", 0, 50)]
+prompt = build_prompt(history, user_msg)
+reply = llm(prompt)
+```
+
+Pain points:
+- Hits the LLM context limit fast.
+- "Last 50" is a guess. Older relevant context gets evicted.
+- Redis cost grows linearly forever.
+
+## The Tex version
+
+```python after.py
+hits = tex.recall(q=user_msg, session_id=sid, top_k=8)
+prompt = build_prompt_with_memory([h.text for h in hits.hits.turns], user_msg)
+reply = llm(prompt)
+tex.conversations.remember(session_id=sid, turns=[
+    {"role":"user","text": user_msg, "timestamp": now_iso()},
+    {"role":"assistant","text": reply, "timestamp": now_iso()},
+])
+```
+
+Three things change for the better:
+
+1. **Bounded prompts.** You pull the *relevant* 8 turns regardless of how many exist.
+2. **Cross-session continuity.** Use `f"chat-{user_id}"` to share memory across conversations.
+3. **No retention policy to maintain.** Tex's confidence scoring decides what stays useful.
+
+## Backfill plan
+
+<Steps>
+  <Step title="Dump Redis to a script">
+    For each `hist:*` key, fetch all turns with their original timestamps.
+  </Step>
+  <Step title="Bulk-remember">
+    ```python
+    for sid, turns in redis_history.items():
+        formatted = [
+            {"role": t["role"], "text": t["text"], "timestamp": t["ts"]}
+            for t in turns
+        ]
+        # Big batches are fine — pass all turns at once
+        tex.conversations.remember(session_id=sid, turns=formatted)
+    ```
+  </Step>
+  <Step title="Verify">
+    Pick 10 sessions. For each, run a known query and compare retrieved turns against your Redis log. Look for:
+
+    - All turns are present (`active_fragment_ids` count matches input)
+    - `recall(q=<a known phrase>)` finds the right turn
+  </Step>
+  <Step title="Shadow mode">
+    Run **both** read paths in production for a week. Log when Tex's `confidence < 0.2`. If those rate is below your tolerance, proceed.
+  </Step>
+  <Step title="Cut over the read path">
+    Switch the prompt to use Tex hits. Keep the Redis writes for one more week as backup.
+  </Step>
+  <Step title="Cut over the write path">
+    Stop appending to Redis. Drop the table.
+  </Step>
+</Steps>
+
+## Edge cases
+
+<AccordionGroup>
+  <Accordion title="Streaming responses" icon="bolt">
+    Stream the answer to the user as you have been; persist with `remember` *after* the stream completes. Use a background task so you don't delay the next request.
+  </Accordion>
+  <Accordion title="System messages" icon="filter">
+    Don't migrate system messages. They're not useful to recall and they consume tokens.
+  </Accordion>
+  <Accordion title="Tool calls / function calls" icon="screwdriver-wrench">
+    For OpenAI-style tool calls, store the *result* of the tool call as an assistant turn, not the raw JSON. Recall surfaces text, not structured payloads.
+  </Accordion>
+  <Accordion title="What if Redis was my only audit log?" icon="shield">
+    Tex isn't an audit store. If you need one, keep Redis (or move to a real audit log like CloudTrail-style append-only) for compliance, and use Tex for retrieval. Two systems, two purposes.
+  </Accordion>
+</AccordionGroup>

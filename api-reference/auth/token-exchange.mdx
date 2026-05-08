@@ -1,0 +1,96 @@
+---
+title: "POST /auth/token-exchange"
+description: "Exchange an API key for a short-lived JWT pair."
+api: "POST https://api.getmetacognition.com/auth/token-exchange"
+---
+
+Trades an API key for a JWT access/refresh pair. The Python SDK does this automatically — call this directly only if you're integrating from another language or brokering tokens in a separate service.
+
+## Body
+
+```json
+{
+  "api_key": "tex_live_..."
+}
+```
+
+<ParamField body="api_key" type="string" required>
+  Your API key.
+</ParamField>
+
+## Response — `200`
+
+<ResponseField name="access_token" type="string">
+  RS256-signed JWT. Send as `Authorization: Bearer <access_token>` on subsequent calls. Lifetime: 24h.
+</ResponseField>
+
+<ResponseField name="refresh_token" type="string">
+  Refresh JWT. Use to obtain a new access token without re-exchanging the API key. Lifetime: 7d.
+</ResponseField>
+
+<ResponseField name="token_type" type="string">
+  Always `"bearer"`.
+</ResponseField>
+
+<ResponseField name="expires_in" type="number">
+  Access-token lifetime in seconds.
+</ResponseField>
+
+## Example
+
+<CodeGroup>
+```bash cURL
+curl -X POST https://api.getmetacognition.com/auth/token-exchange \
+  -H 'content-type: application/json' \
+  -d '{"api_key":"tex_live_..."}'
+```
+
+```python Python
+import httpx
+
+resp = httpx.post(
+    "https://api.getmetacognition.com/auth/token-exchange",
+    json={"api_key": "tex_live_..."},
+)
+tokens = resp.json()
+access = tokens["access_token"]
+```
+
+```js JavaScript
+const resp = await fetch(
+  "https://api.getmetacognition.com/auth/token-exchange",
+  {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ api_key: "tex_live_..." }),
+  }
+);
+const tokens = await resp.json();
+```
+</CodeGroup>
+
+```json Response
+{
+  "access_token": "eyJhbGciOiJSUzI1NiIs...",
+  "refresh_token": "eyJhbGciOiJSUzI1NiIs...",
+  "token_type": "bearer",
+  "expires_in": 86400
+}
+```
+
+## JWT contents
+
+Decode the access token (don't *trust* the contents — verify with the [JWKS endpoint](https://api.getmetacognition.com/.well-known/jwks.json) if you need to):
+
+```json
+{
+  "org_id": "org_79d0fHwDRhoZ8Ww7",
+  "user_id": "apikey_a1247653",
+  "roles": ["*"],
+  "exp": 1778147808,
+  "iat": 1778061408,
+  "type": "access"
+}
+```
+
+The `org_id` and `user_id` claims are what server-side scoping reads. They cannot be overridden by request bodies.

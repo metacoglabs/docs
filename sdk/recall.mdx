@@ -1,0 +1,156 @@
+---
+title: "recall"
+description: "Pull the most relevant slice of memory for a query."
+---
+
+```python
+RecallResponse = tex.recall(
+    q: str,
+    *,
+    session_id: str,
+    mode: "active" | "deep" = "active",
+    top_k: int | None = None,
+    include_timeline: bool = False,
+) -> RecallResponse
+```
+
+<Note>
+  `recall` is callable on the client itself: `tex.recall(...)`. There's no `tex.recall.search(...)` indirection.
+</Note>
+
+## Parameters
+
+<ParamField path="q" type="str" required>
+  Natural-language query. Same shape as the user's most recent turn works well.
+</ParamField>
+
+<ParamField path="session_id" type="str" required>
+  Which session(s) to search. Use the same `session_id` you wrote with.
+</ParamField>
+
+<ParamField path="mode" type='"active" | "deep"' default='"active"'>
+  Retrieval depth. See [Retrieval](/concepts/retrieval).
+</ParamField>
+
+<ParamField path="top_k" type="int" default="8">
+  Number of hits across all kinds. Larger inflates `tokens_out`.
+</ParamField>
+
+<ParamField path="include_timeline" type="bool" default="false">
+  Adds a chronological list of relevant events to the response.
+</ParamField>
+
+## Returns
+
+<ResponseField name="hits.turns" type="list[RecallHit]">
+  Raw conversation turns most relevant to `q`.
+</ResponseField>
+
+<ResponseField name="hits.observations" type="list[RecallHit]">
+  Atomic facts extracted from past turns (e.g. preferences, decisions).
+</ResponseField>
+
+<ResponseField name="hits.entities" type="list[RecallEntity]">
+  People / places / things linked across observations.
+</ResponseField>
+
+<ResponseField name="confidence" type="float">
+  Calibrated confidence in [0, 1]. P(hits relevant | confidence = c) ≈ c.
+</ResponseField>
+
+<ResponseField name="timeline" type="list | None">
+  Set when `include_timeline=True`.
+</ResponseField>
+
+<ResponseField name="mode" type="str">
+  Echoes the request mode.
+</ResponseField>
+
+<ResponseField name="usage" type="Usage">
+  `tokens_in` / `tokens_out` billed for this call.
+</ResponseField>
+
+### `RecallHit` shape
+
+```python
+@dataclass
+class RecallHit:
+    id: str             # stable; persists across recalls
+    text: str           # matched content
+    score: float        # raw relevance, 0.0–1.0
+    kind: str           # "turn" | "observation" | "entity"
+    timestamp: str | None
+```
+
+## Examples
+
+### Build a chatbot system prompt
+
+```python
+def respond(user_msg: str, sid: str) -> str:
+    hits = tex.recall(q=user_msg, session_id=sid, top_k=5)
+    memory = "\n".join(f"- {h.text}" for h in hits.hits.turns)
+
+    return llm.complete([
+        {"role": "system", "content": f"Relevant memory:\n{memory}"},
+        {"role": "user",   "content": user_msg},
+    ])
+```
+
+### Confidence-gated fallback
+
+```python
+hits = tex.recall(q=q, session_id=sid)
+
+if hits.confidence < 0.3:
+    hits = tex.recall(q=q, session_id=sid, mode="deep")
+
+if hits.confidence < 0.2:
+    return generate_without_memory(q)
+```
+
+### Temporal queries
+
+```python
+hits = tex.recall(
+    q="when did we discuss pricing?",
+    session_id=sid,
+    include_timeline=True,
+)
+
+for event in hits.timeline:
+    print(event["timestamp"], "—", event["summary"])
+```
+
+### Multi-source recall
+
+If you have both a long-lived user "bio" and a per-conversation session, query both:
+
+```python
+bio = tex.recall(q=user_msg, session_id=f"bio-{user_id}", top_k=3)
+chat = tex.recall(q=user_msg, session_id=f"chat-{conv_id}", top_k=5)
+
+context = "\n".join(f"- {h.text}" for h in (bio.hits.turns + chat.hits.turns))
+```
+
+## Performance
+
+| Mode | Typical p50 | p99 | When to use |
+| --- | --- | --- | --- |
+| `active` | 1.7s | 2.5s | Every interactive call |
+| `deep` | 3.5s | 6s | Periodic analysis, low-confidence retries |
+
+Set `timeout=2.0` on the constructor for interactive paths to bound your tail latency. Catch `APITimeoutError` and degrade gracefully:
+
+```python
+try:
+    hits = tex.recall(q=q, session_id=sid)
+    context = format_context(hits)
+except APITimeoutError:
+    context = "(no memory available)"
+return llm.complete(prompt_with(context))
+```
+
+<Card title="Next: usage" icon="receipt" href="/sdk/usage">
+  Read your token totals.
+</Card>

@@ -1,0 +1,89 @@
+---
+title: "Installation"
+description: "Install tex-sdk and verify the install."
+---
+
+## Requirements
+
+- Python ≥ 3.9
+- `pip`, `uv`, or `poetry`
+
+## Install
+
+<CodeGroup>
+
+```bash pip
+pip install tex-sdk
+```
+
+```bash uv
+uv add tex-sdk
+```
+
+```bash poetry
+poetry add tex-sdk
+```
+
+</CodeGroup>
+
+<Note>
+  PyPI distribution name is `tex-sdk`. Import name is `tex`:
+
+  ```python
+  from tex import Tex
+  ```
+</Note>
+
+## Verify
+
+```bash
+python -c "import tex; print(tex.__version__)"
+# 1.1.0
+```
+
+## Pin a version
+
+<CodeGroup>
+
+```text requirements.txt
+tex-sdk>=1.1.0,<2
+```
+
+```toml pyproject.toml (PEP 621)
+[project]
+dependencies = [
+  "tex-sdk>=1.1.0,<2",
+]
+```
+
+```toml pyproject.toml (poetry)
+[tool.poetry.dependencies]
+python = "^3.9"
+tex-sdk = "^1.1.0"
+```
+
+</CodeGroup>
+
+## Optional extras
+
+The SDK pulls in `httpx[http2]` automatically, which gives you HTTP/2 multiplexing. If your egress proxy strips HTTP/2, disable it:
+
+```python
+tex = Tex(api_key=..., http2=False)
+```
+
+## Type hints
+
+The SDK ships type stubs (`py.typed`). Mypy and Pyright pick them up automatically — no `types-` package needed.
+
+```python
+from tex import Tex, RecallResponse
+
+tex: Tex = Tex(...)
+hits: RecallResponse = tex.recall(q="...", session_id="...")
+reveal_type(hits.confidence)   # float
+```
+
+<Card title="Next: configure the client" icon="gears" href="/sdk/client">
+  Constructor options, environment variables, lifecycle.
+</Card>

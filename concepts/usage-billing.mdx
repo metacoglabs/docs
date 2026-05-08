@@ -1,0 +1,112 @@
+---
+title: "Usage & billing"
+description: "Tokens, quotas, and cost control."
+---
+
+## The billable unit
+
+**Tokens.** Specifically:
+
+- `tokens_in` — everything you sent us. Conversation turns on `remember`, queries on `recall`.
+- `tokens_out` — everything we sent back. Recall hits, observation text, entity payloads.
+
+Counted with `tiktoken cl100k_base` to match `text-embedding-3-large`.
+
+## Free tier (launch month)
+
+<CardGroup cols={2}>
+  <Card title="tokens_in" icon="upload">
+    **1,000,000 / day**
+  </Card>
+  <Card title="tokens_out" icon="download">
+    **5,000,000 / day**
+  </Card>
+</CardGroup>
+
+Reset 00:00 UTC. Exceed → `429 RateLimitError` until reset.
+
+For most apps that's plenty: ~200 active users with 50 turns each per day before you'd hit the cap.
+
+## Reading your usage
+
+<Tabs>
+  <Tab title="Python SDK">
+    ```python
+    today = tex.usage.today()
+    print(f"in:  {today.tokens_in_used:,} / {today.tokens_in_limit:,}")
+    print(f"out: {today.tokens_out_used:,} / {today.tokens_out_limit:,}")
+
+    # Calendar-month rollups (UTC)
+    month = tex.usage.summary()
+    march = tex.usage.summary(month="2026-03")
+    ```
+  </Tab>
+  <Tab title="Dashboard">
+    Visit [Dashboard → Usage](https://app.getmetacognition.com/dashboard/usage) for daily bars and the 6-month trend chart.
+  </Tab>
+  <Tab title="cURL">
+    ```bash
+    curl -H "Authorization: Bearer $JWT" \
+      https://api.getmetacognition.com/usage/today
+
+    curl -H "Authorization: Bearer $JWT" \
+      "https://api.getmetacognition.com/usage/summary?month=2026-04"
+    ```
+  </Tab>
+</Tabs>
+
+## Per-response usage
+
+Every `remember` and `recall` returns its own usage on the response, so you can attribute cost per call:
+
+```python
+hits = tex.recall(q="...", session_id=sid)
+print(hits.usage.tokens_in, hits.usage.tokens_out)
+```
+
+Use this to:
+
+- Build per-end-user usage charts inside your own product.
+- Rate-limit your highest-token features.
+- Optimize: see which queries return the heaviest payloads.
+
+## Cost-control patterns
+
+<AccordionGroup>
+  <Accordion title="Cap top_k" icon="ruler">
+    `top_k=8` is the default. Larger values inflate `tokens_out` significantly. For agent loops, use 3–5.
+  </Accordion>
+  <Accordion title="Use active mode" icon="bolt">
+    `mode="active"` is faster *and* cheaper than `mode="deep"`. Reserve deep for explicit user requests or low-confidence retries.
+  </Accordion>
+  <Accordion title="Pre-filter writes" icon="filter">
+    Don't `remember` system messages, empty assistant pings, or "ok" / "thanks" turns. Strip them client-side.
+  </Accordion>
+  <Accordion title="Quota-aware routing" icon="route">
+    ```python
+    if tex.usage.today().tokens_in_used / 1_000_000 > 0.9:
+        # Skip recall for non-essential paths
+        return generate_without_memory(query)
+    ```
+  </Accordion>
+  <Accordion title="Batch remembers" icon="layer-group">
+    Pass dozens of turns in one `remember` call instead of one-per-turn loops. Same total tokens, far fewer round-trips.
+  </Accordion>
+</AccordionGroup>
+
+## Quota alerts
+
+We email you automatically at **80% of either daily cap.** No setup. Email goes to your account address.
+
+For programmatic alerting, poll `tex.usage.today()` from your own monitoring (e.g. once every 5 minutes from a cron) and page on:
+
+- `tokens_in_used / tokens_in_limit > 0.9`
+- A 10x jump in 1-minute deltas (probable runaway loop)
+
+## After the launch month
+
+Pay-as-you-go. Pricing TBA. Existing daily limits stay as **soft alert** thresholds — we'll email you, not 429 you. Enterprise pricing on request.
+
+<Card title="Next: install the SDK" icon="download" href="/sdk/installation">
+  Set up the Python client.
+</Card>

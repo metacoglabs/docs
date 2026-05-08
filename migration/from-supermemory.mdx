@@ -1,0 +1,76 @@
+---
+title: "From Supermemory"
+description: "Migrate from Supermemory's SDK to Tex with minimal code changes."
+---
+
+The Tex Python SDK is **resource-shape compatible** with Supermemory for the verbs we both implement. If you're using `supermemory.add(...)`, `client.search(...)`, or `client.profile(...)`, the migration is mostly a pip install and a base-url swap.
+
+## Drop-in compatibility
+
+These calls work the same in Tex:
+
+| Supermemory | Tex |
+| --- | --- |
+| `client.add(content, container_tag=...)` | `tex.add(content, container_tag=...)` |
+| `client.search(q, ...)` | `tex.search(q, ...)` |
+| `client.profile(container_tag, ...)` | `tex.profile(container_tag, ...)` |
+| `client.documents.list()` | `tex.documents.list()` |
+
+Tex's `/v3/*` and `/v4/*` paths accept the **raw API key** as Bearer (no JWT exchange) for full Supermemory compatibility — the SDK routes them automatically.
+
+## Exclusive Tex features
+
+These are Tex-only verbs you can adopt incrementally:
+
+| Verb | What it adds |
+| --- | --- |
+| `tex.conversations.remember(...)` | Native conversation-turn ingestion with role/timestamp/observations. |
+| `tex.recall(...)` | Confidence-scored retrieval with active/deep modes. |
+| `tex.usage.today()` | Read your token totals without leaving Python. |
+
+## Migration steps
+
+<Steps>
+  <Step title="Install Tex">
+    ```bash
+    pip uninstall supermemory
+    pip install tex-sdk
+    ```
+  </Step>
+  <Step title="Swap the import">
+    ```python
+    # before
+    from supermemory import Supermemory
+    client = Supermemory(api_key=...)
+
+    # after
+    from tex import Tex
+    client = Tex(api_key=..., base_url="https://api.getmetacognition.com")
+    ```
+  </Step>
+  <Step title="Run">
+    Existing `add` / `search` / `profile` calls keep working unchanged.
+  </Step>
+  <Step title="Adopt Tex-native verbs (optional)">
+    Replace your conversation-history pattern with `tex.conversations.remember` + `tex.recall` for stronger temporal awareness and confidence scoring. See [memory model](/concepts/memory-model).
+  </Step>
+</Steps>
+
+## Behavioral differences worth knowing
+
+<AccordionGroup>
+  <Accordion title="Auth model" icon="key">
+    Supermemory uses the API key directly as Bearer. Tex does that for `/v3/*` and `/v4/*` (compat paths) but exchanges to JWT for Tex-native paths (`/recall`, `/ingestion/memory`, `/usage/*`). The SDK handles both transparently.
+  </Accordion>
+  <Accordion title="Retention" icon="hard-drive">
+    Both are persistent. Tex doesn't have a "free tier expires after 30 days" wipe — your memory stays until you delete it.
+  </Accordion>
+  <Accordion title="Pricing model" icon="receipt">
+    Tex bills on tokens (`tokens_in` / `tokens_out`), not document count. For chatty workloads with short turns, this is usually cheaper. For document-heavy ingestion, run `tex.usage.summary()` after a representative day to compare.
+  </Accordion>
+  <Accordion title="Profiles" icon="user">
+    Tex's `profile` aggregates over `container_tag` like Supermemory's. Backfill works without changes.
+  </Accordion>
+</AccordionGroup>
+
+If you hit a Supermemory verb that doesn't behave identically, file an issue — we'll fix the gap or document the diff.

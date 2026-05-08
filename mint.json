@@ -1,0 +1,144 @@
+{
+  "$schema": "https://mintlify.com/schema.json",
+  "name": "Tex",
+  "logo": {
+    "dark": "/logo/dark.svg",
+    "light": "/logo/light.svg"
+  },
+  "favicon": "/favicon.png",
+  "colors": {
+    "primary": "#0EA5E9",
+    "light": "#38BDF8",
+    "dark": "#0369A1",
+    "anchors": {
+      "from": "#0EA5E9",
+      "to": "#7C3AED"
+    }
+  },
+  "topbarLinks": [
+    {
+      "name": "Dashboard",
+      "url": "https://app.getmetacognition.com"
+    },
+    {
+      "name": "Support",
+      "url": "mailto:support@getmetacognition.com"
+    }
+  ],
+  "topbarCtaButton": {
+    "name": "Get an API key",
+    "url": "https://app.getmetacognition.com/signup"
+  },
+  "anchors": [
+    {
+      "name": "Python SDK",
+      "icon": "python",
+      "url": "sdk"
+    },
+    {
+      "name": "REST API",
+      "icon": "code",
+      "url": "api-reference"
+    },
+    {
+      "name": "GitHub",
+      "icon": "github",
+      "url": "https://github.com/metacoglabs"
+    }
+  ],
+  "navigation": [
+    {
+      "group": "Get started",
+      "pages": [
+        "introduction",
+        "quickstart",
+        "authentication"
+      ]
+    },
+    {
+      "group": "Concepts",
+      "pages": [
+        "concepts/memory-model",
+        "concepts/scopes",
+        "concepts/retrieval",
+        "concepts/usage-billing"
+      ]
+    },
+    {
+      "group": "Python SDK",
+      "pages": [
+        "sdk/installation",
+        "sdk/client",
+        "sdk/conversations-remember",
+        "sdk/recall",
+        "sdk/usage",
+        "sdk/errors"
+      ]
+    },
+    {
+      "group": "REST API",
+      "pages": [
+        "api-reference/overview",
+        {
+          "group": "Auth",
+          "pages": [
+            "api-reference/auth/signup",
+            "api-reference/auth/token-exchange",
+            "api-reference/auth/refresh"
+          ]
+        },
+        {
+          "group": "Account",
+          "pages": [
+            "api-reference/account/me",
+            "api-reference/account/api-keys"
+          ]
+        },
+        {
+          "group": "Memory",
+          "pages": [
+            "api-reference/memory/ingest-memory",
+            "api-reference/memory/recall"
+          ]
+        },
+        {
+          "group": "Usage",
+          "pages": [
+            "api-reference/usage/today",
+            "api-reference/usage/summary"
+          ]
+        }
+      ]
+    },
+    {
+      "group": "Recipes",
+      "pages": [
+        "recipes/fastapi",
+        "recipes/langchain",
+        "recipes/azure-openai-rag",
+        "recipes/slack-bot",
+        "recipes/streamlit",
+        "recipes/multi-tenant-saas"
+      ]
+    },
+    {
+      "group": "Migration",
+      "pages": [
+        "migration/from-redis",
+        "migration/from-langchain-memory",
+        "migration/from-supermemory"
+      ]
+    },
+    {
+      "group": "Reference",
+      "pages": [
+        "troubleshooting",
+        "changelog"
+      ]
+    }
+  ],
+  "footerSocials": {
+    "github": "https://github.com/metacoglabs",
+    "linkedin": "https://www.linkedin.com/company/metacognition-ai"
+  }
+}

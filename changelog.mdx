@@ -1,0 +1,46 @@
+---
+title: "Changelog"
+description: "What's new in the Tex SDK."
+---
+
+## 1.1.0 — 2026-05
+
+**Token-based metering**
+
+- New `tex.usage.today()` and `tex.usage.summary(month=...)` methods.
+- Every `remember` and `recall` response now carries a `usage` field with `tokens_in` and `tokens_out`.
+- Daily quotas enforced at the engine — `RateLimitError` on exceed.
+
+**Conversation-native verbs**
+
+- `tex.conversations.remember(turns=..., session_id=...)` for first-class turn ingestion.
+- `tex.recall(q=..., session_id=..., mode="active"|"deep")` with confidence scoring and optional timeline.
+
+**Improvements**
+
+- HTTP/2 enabled by default for ~25% lower tail latency on recall.
+- Automatic JWT refresh on 401, with single-retry semantics.
+- Stable type stubs (`py.typed`) shipped with the wheel.
+
+## 1.0.0 — 2026-03
+
+Initial public release. Supermemory-compatible verbs (`add`, `search`, `profile`).
+
+---
+
+## Roadmap
+
+<CardGroup cols={2}>
+  <Card title="Async client" icon="bolt">
+    `from tex import AsyncTex` — same API, awaitable methods. Targeting Q3.
+  </Card>
+  <Card title="Per-call user scoping" icon="users">
+    `tex.recall(..., user_id=...)` without constructing a new client. Targeting 1.2.
+  </Card>
+  <Card title="TypeScript SDK" icon="square-js">
+    First-class TS client mirroring the Python API. Targeting Q3.
+  </Card>
+  <Card title="Webhook ingestion" icon="webhook">
+    Stream turns from your event bus directly into memory. Targeting Q4.
+  </Card>
+</CardGroup>

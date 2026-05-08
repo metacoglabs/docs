@@ -1,0 +1,109 @@
+---
+title: "Multi-tenant SaaS"
+description: "One Tex key, partitioned per end-user."
+---
+
+You're building a product where each of your customers has their own private memory. Two patterns; almost everyone wants Pattern A.
+
+## Pattern A — one Tex key, sub-user scoping (recommended)
+
+You hold a single Tex API key in your secrets manager. Each end-user maps to a `user_id` you choose.
+
+```python deps.py
+from functools import cache
+from tex import Tex
+import os
+
+@cache
+def shared_tex() -> Tex:
+    return Tex(
+        api_key=os.environ["TEX_API_KEY"],
+        base_url=os.environ["TEX_BASE_URL"],
+    )
+```
+
+Then encode the end-user into the `session_id`:
+
+```python chat.py
+from fastapi import APIRouter, Header
+from .deps import shared_tex
+
+router = APIRouter()
+
+@router.post("/chat")
+def chat(body: ChatBody, x_user_id: str = Header(...)):
+    tex = shared_tex()
+    sid = f"u_{x_user_id}-{body.session_id}"   # user-scoped session
+
+    hits = tex.recall(q=body.text, session_id=sid)
+    answer = your_llm(body.text, memory=hits)
+    tex.conversations.remember(session_id=sid, turns=[...])
+    return {"answer": answer}
+```
+
+| Trait | Pattern A |
+| --- | --- |
+| Number of Tex keys to manage | 1 |
+| Bills | 1 (yours) |
+| Dashboard access for end-users | None (you build your own UI) |
+| Memory isolation | By `session_id` — strict, no cross-talk |
+
+<Tip>
+  Per-call `user_id` scoping is on the SDK roadmap (1.2). Until then, encoding the end-user into the `session_id` is the cleanest pattern.
+</Tip>
+
+## Pattern B — one Tex key per end-user
+
+You're *reselling* Tex — your customers want to log into our dashboard with their own account, see their own usage, get their own bill.
+
+```python signup.py
+import httpx
+
+def onboard_end_user(end_user_email: str) -> str:
+    """Mint a fresh Tex org for this end-user. Persist the key in your DB."""
+    resp = httpx.post(
+        "https://api.getmetacognition.com/signup",
+        json={"name": end_user_email},
+    )
+    resp.raise_for_status()
+    data = resp.json()
+    db.users.update(end_user_email, tex_api_key=data["api_key"], tex_org_id=data["org_id"])
+    return data["api_key"]
+```
+
+Then per-request, look up that user's key:
+
+```python
+def tex_for_user(end_user_id: str) -> Tex:
+    row = db.users.get(end_user_id)
+    return Tex(api_key=row.tex_api_key, base_url=os.environ["TEX_BASE_URL"])
+```
+
+Cache the `Tex` per user-id in a TTL'd dict (≤ 1h) so you reuse connections without keeping every user's client live forever.
+
+| Trait | Pattern B |
+| --- | --- |
+| Number of Tex keys to manage | One per end-user — store in your DB. |
+| Bills | One per end-user (we send each org an invoice). |
+| Dashboard access | Each end-user has their own dashboard login. |
+| Memory isolation | At the org level — completely separate. |
+
+## Picking
+
+<CardGroup cols={2}>
+  <Card title="Pattern A" icon="users">
+    You're building an app on top of Tex. Most cases. Cleanest ops.
+  </Card>
+  <Card title="Pattern B" icon="building">
+    You're reselling Tex as part of your platform. Customers want their own bill.
+  </Card>
+</CardGroup>
+
+## Quota strategy under Pattern A
+
+Daily quotas are per-org. Under Pattern A, all end-users share your one quota — so a runaway end-user can starve everyone else.
+
+Mitigations:
+- Track per-user token usage yourself (the `usage` field on every response makes this free).
+- Soft-cap each user at, say, 10% of your daily limit; switch them to no-memory generation when they exceed it.
+- Use [`tex.usage.today()`](/sdk/usage) to gate non-essential paths when total usage > 90%.

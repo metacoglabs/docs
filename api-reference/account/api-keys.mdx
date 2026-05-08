@@ -1,0 +1,124 @@
+---
+title: "API keys"
+description: "List, mint, and revoke API keys."
+---
+
+## `GET /me/api-keys`
+
+Lists keys for the current user. Same shape as `GET /me`'s `api_keys` field.
+
+```http
+GET /me/api-keys[?include_revoked=true]
+Authorization: Bearer <access_token>
+```
+
+<ParamField query="include_revoked" type="boolean" default="false">
+  When `true`, includes revoked keys (with non-null `revoked_at`).
+</ParamField>
+
+## `POST /me/api-keys`
+
+Mints a new key. Returns the plaintext value **once.**
+
+```http
+POST /me/api-keys
+Authorization: Bearer <access_token>
+Content-Type: application/json
+```
+
+### Body
+
+```json
+{ "name": "laptop-dev" }
+```
+
+<ParamField body="name" type="string">
+  Optional human-readable label.
+</ParamField>
+
+### Response — `201`
+
+<ResponseField name="api_key" type="string">
+  Plaintext key. Store immediately.
+</ResponseField>
+
+<ResponseField name="key" type="object">
+  Metadata (id, prefix, display_id, name, …).
+</ResponseField>
+
+```json
+{
+  "api_key": "tex_live_eGpnAyArDoncUaK9r-sT9um__jvKEZutqpbVwsS4iJw",
+  "key": {
+    "id": "30a820b9-11b6-4a54-93fc-0a682c167476",
+    "prefix": "tex_live_",
+    "display_id": "eGpnAyAr",
+    "name": "laptop-dev",
+    "scopes": ["*"],
+    "is_active": true,
+    "created_at": "2026-05-08T09:57:02.363742",
+    "last_used_at": null,
+    "revoked_at": null
+  }
+}
+```
+
+## `DELETE /me/api-keys/{id}`
+
+Revokes a key. Returns `204 No Content`.
+
+```http
+DELETE /me/api-keys/{id}
+Authorization: Bearer <access_token>
+```
+
+<ParamField path="id" type="string" required>
+  The key's UUID (the `id` field, not the prefix or display_id).
+</ParamField>
+
+<Warning>
+  Revocation is **irreversible.** Existing JWTs minted from a revoked key keep working until they expire (max 24h after revocation).
+</Warning>
+
+## Examples
+
+<CodeGroup>
+```bash cURL — list, mint, revoke
+# List active keys
+curl -H "Authorization: Bearer $JWT" \
+  https://api.getmetacognition.com/me/api-keys
+
+# Mint a new one
+curl -X POST -H "Authorization: Bearer $JWT" \
+  -H 'content-type: application/json' \
+  -d '{"name":"production"}' \
+  https://api.getmetacognition.com/me/api-keys
+
+# Revoke
+curl -X DELETE -H "Authorization: Bearer $JWT" \
+  https://api.getmetacognition.com/me/api-keys/a1247653-9646-4f32-b04f-72d2c0f5355b
+```
+
+```python Python
+import httpx
+
+H = {"Authorization": f"Bearer {jwt}"}
+api = "https://api.getmetacognition.com"
+
+# List
+keys = httpx.get(f"{api}/me/api-keys", headers=H).json()
+
+# Mint
+new = httpx.post(f"{api}/me/api-keys", headers=H, json={"name": "production"}).json()
+plaintext = new["api_key"]   # save this
+
+# Revoke
+httpx.delete(f"{api}/me/api-keys/{key_id}", headers=H)
+```
+</CodeGroup>
+
+## Operational tips
+
+- One key per environment. Mint `production`, `staging`, `local-dev-sauhard` separately.
+- Set `last_used_at` thresholds in your monitoring — alert if a key hasn't been used in 30 days (probably abandoned).
+- Don't share keys across services — each service gets its own so revocation has surgical blast radius.

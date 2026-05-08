@@ -1,0 +1,92 @@
+---
+title: "Introduction"
+description: "Tex is a memory layer for AI agents. Give it your conversations, recall what matters, never re-explain yourself to your model again."
+---
+
+<img
+  className="block dark:hidden"
+  src="/images/hero-light.png"
+  alt="Tex memory layer"
+/>
+<img
+  className="hidden dark:block"
+  src="/images/hero-dark.png"
+  alt="Tex memory layer"
+/>
+
+## What is Tex?
+
+Tex is a hosted memory layer for AI agents. You stream conversation turns to it; it builds a multi-modal memory store — raw turns, extracted observations, entities, and a temporal index. When your agent needs context, you call `recall(...)` and get back the relevant slice of history, scored and ready to drop into a system prompt.
+
+It's the layer between your agent loop and your LLM. Stop dragging entire chat histories into prompts. Stop maintaining your own retention logic. Stop forgetting what your user told you last week.
+
+<CardGroup cols={2}>
+  <Card title="5-minute quickstart" icon="rocket" href="/quickstart">
+    From `pip install` to first recall.
+  </Card>
+  <Card title="Memory model" icon="brain" href="/concepts/memory-model">
+    Turns, observations, entities — what we store and why.
+  </Card>
+  <Card title="Recipes" icon="book-open" href="/recipes/fastapi">
+    Ten paste-ready integrations: FastAPI, LangChain, Slack, Streamlit.
+  </Card>
+  <Card title="Python SDK" icon="python" href="/sdk/installation">
+    Full SDK reference — every method, every option.
+  </Card>
+</CardGroup>
+
+## How it works
+
+<Steps>
+  <Step title="Remember">
+    Push conversation turns to Tex through `tex.conversations.remember(...)`. Active memory is queryable in milliseconds; passive enrichment (observations, entity graph) builds in the background.
+  </Step>
+  <Step title="Recall">
+    On every new user turn, call `tex.recall(query)`. You get back scored turns + observations + a confidence number — drop them into your system prompt.
+  </Step>
+  <Step title="Generate">
+    Your LLM produces an answer with full context but a small prompt. Persist the new turns back to Tex. Loop.
+  </Step>
+</Steps>
+
+## Why a memory layer?
+
+<CardGroup cols={2}>
+  <Card title="Bounded prompts" icon="ruler">
+    A 200-turn chat doesn't blow your context window — you fetch the *relevant* 5 turns.
+  </Card>
+  <Card title="Cross-session continuity" icon="link">
+    Memory persists across sessions automatically. No glue code, no Redis TTLs to tune.
+  </Card>
+  <Card title="Temporal awareness" icon="clock">
+    "What did I say about pricing two weeks ago?" is a first-class query — not a vector search hack.
+  </Card>
+  <Card title="Confidence scoring" icon="gauge">
+    Every recall returns a calibrated confidence. Gate fallback behavior on it.
+  </Card>
+</CardGroup>
+
+## When *not* to use Tex
+
+Tex is for **conversational, per-user, time-aware memory.** Use a regular vector DB for:
+
+- Static documentation lookup ("what does the manual say about X?")
+- One-shot RAG over a corpus that doesn't accumulate per-user
+- Cold storage / archival
+- Bulk file ingestion at GB scale
+
+Use both? Common. Tex remembers what *the user* said. Your vector DB knows what *the world* said. Combine in your prompt.
+
+## Next steps
+
+<CardGroup cols={3}>
+  <Card title="Quickstart" icon="play" href="/quickstart">
+    First call in 5 minutes
+  </Card>
+  <Card title="Authentication" icon="key" href="/authentication">
+    API keys, JWTs, refresh
+  </Card>
+  <Card title="Get a key" icon="user-plus" href="https://app.getmetacognition.com/signup">
+    Sign up at the dashboard
+  </Card>
+</CardGroup>

@@ -1,0 +1,103 @@
+---
+title: "Azure OpenAI RAG"
+description: "Tex memory + GPT-4o on Azure for production RAG."
+---
+
+The canonical "memory + LLM" loop with Azure OpenAI. Same shape works for OpenAI direct, Anthropic, or any chat-completion API — swap the SDK.
+
+## Install
+
+```bash
+pip install tex-sdk openai
+```
+
+## Environment
+
+```bash
+# .env
+TEX_API_KEY=tex_live_...
+TEX_BASE_URL=https://api.getmetacognition.com
+
+AZURE_OPENAI_ENDPOINT=https://<your-resource>.openai.azure.com
+AZURE_OPENAI_API_KEY=...
+AZURE_OPENAI_DEPLOYMENT=gpt-4o
+AZURE_OPENAI_API_VERSION=2025-04-01-preview
+```
+
+## Code
+
+```python rag.py
+import os
+from datetime import datetime, timezone
+from openai import AzureOpenAI
+from tex import Tex, RateLimitError, APITimeoutError
+
+tex = Tex(api_key=os.environ["TEX_API_KEY"], base_url=os.environ["TEX_BASE_URL"], timeout=10)
+gpt = AzureOpenAI(
+    api_key=os.environ["AZURE_OPENAI_API_KEY"],
+    api_version=os.environ["AZURE_OPENAI_API_VERSION"],
+    azure_endpoint=os.environ["AZURE_OPENAI_ENDPOINT"],
+)
+
+def now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+def answer(query: str, sid: str) -> dict:
+    # 1. Recall — soft-fail
+    memory: list[str] = []
+    confidence = 0.0
+    try:
+        hits = tex.recall(q=query, session_id=sid, top_k=5)
+        memory = [h.text for h in hits.hits.turns]
+        confidence = hits.confidence
+    except (RateLimitError, APITimeoutError):
+        pass
+
+    # 2. Generate
+    sys_msg = (
+        "You are a helpful assistant. "
+        + (f"Relevant memory:\n{chr(10).join('- ' + m for m in memory)}"
+           if memory else "")
+    )
+    chat = gpt.chat.completions.create(
+        model=os.environ["AZURE_OPENAI_DEPLOYMENT"],
+        messages=[
+            {"role": "system", "content": sys_msg},
+            {"role": "user",   "content": query},
+        ],
+        temperature=0.4,
+    )
+    reply = chat.choices[0].message.content
+
+    # 3. Remember
+    tex.conversations.remember(session_id=sid, turns=[
+        {"role":"user","text": query,  "timestamp": now_iso()},
+        {"role":"assistant","text": reply, "timestamp": now_iso()},
+    ])
+
+    return {"answer": reply, "confidence": confidence, "memory_used": len(memory)}
+
+if __name__ == "__main__":
+    import json
+    print(json.dumps(answer("any food restrictions?", "demo"), indent=2))
+```
+
+## Run
+
+```bash
+python rag.py
+```
+
+## Notes
+
+<AccordionGroup>
+  <Accordion title="Cite memory in your answers" icon="quote-left">
+    Pass each hit's `id` plus `text` and instruct GPT-4o to cite the id in brackets `[mem:abc]`. You can later resolve the ids back to the turn for click-through.
+  </Accordion>
+  <Accordion title="Confidence-gated mode bump" icon="gauge">
+    If `confidence < 0.4`, retry with `mode="deep"`. Costs an extra 1–4s but rescues a meaningful fraction of weak-recall cases.
+  </Accordion>
+  <Accordion title="Streaming" icon="bolt">
+    `gpt.chat.completions.create(..., stream=True)` works as expected. Push `remember` to a background task so it doesn't delay your stream.
+  </Accordion>
+</AccordionGroup>

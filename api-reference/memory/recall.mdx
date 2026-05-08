@@ -1,0 +1,146 @@
+---
+title: "POST /recall"
+description: "Retrieve the most relevant slice of memory."
+api: "POST https://api.getmetacognition.com/recall"
+---
+
+REST equivalent of `tex.recall(...)`.
+
+## Headers
+
+```http
+Authorization: Bearer <access_token>
+Content-Type: application/json
+```
+
+## Body
+
+```json
+{
+  "scope": {
+    "org_id": "org_...",
+    "session_id": "chat-1"
+  },
+  "q": "what does the user prefer?",
+  "mode": "active",
+  "top_k": 5,
+  "include_timeline": false
+}
+```
+
+<ParamField body="scope.session_id" type="string" required>
+  Session to search.
+</ParamField>
+
+<ParamField body="q" type="string" required>
+  Natural-language query.
+</ParamField>
+
+<ParamField body="mode" type='"active" | "deep"' default='"active"'>
+  Retrieval depth. See [retrieval](/concepts/retrieval).
+</ParamField>
+
+<ParamField body="top_k" type="integer" default="8">
+  Hits to return across all kinds.
+</ParamField>
+
+<ParamField body="include_timeline" type="boolean" default="false">
+  Include a temporal index of relevant events.
+</ParamField>
+
+## Response — `200`
+
+<ResponseField name="hits.turns" type="array">
+  Ranked raw turns.
+</ResponseField>
+
+<ResponseField name="hits.observations" type="array">
+  Atomic facts.
+</ResponseField>
+
+<ResponseField name="hits.entities" type="array">
+  Linked entities.
+</ResponseField>
+
+<ResponseField name="confidence" type="number">
+  Calibrated [0, 1].
+</ResponseField>
+
+<ResponseField name="timeline" type="array | null">
+  When `include_timeline=true`.
+</ResponseField>
+
+<ResponseField name="mode" type="string">
+  Echoes request mode.
+</ResponseField>
+
+<ResponseField name="usage" type="object">
+  `{tokens_in, tokens_out}` for this call.
+</ResponseField>
+
+### Hit shape
+
+```json
+{
+  "id": "c9fcfbf51b03bbc3...",
+  "text": "[user] I'm allergic to shellfish.",
+  "score": 0.42,
+  "kind": "turn",
+  "timestamp": "1778061473326"
+}
+```
+
+## Example
+
+<CodeGroup>
+```bash cURL
+curl -X POST https://api.getmetacognition.com/recall \
+  -H "Authorization: Bearer $JWT" \
+  -H 'content-type: application/json' \
+  -d '{
+    "scope": {"org_id":"org_…","session_id":"chat-1"},
+    "q": "any food restrictions?",
+    "top_k": 3
+  }'
+```
+
+```python Python
+import httpx
+
+resp = httpx.post(
+    "https://api.getmetacognition.com/recall",
+    headers={"Authorization": f"Bearer {jwt}"},
+    json={
+        "scope": {"org_id": "org_…", "session_id": "chat-1"},
+        "q": "any food restrictions?",
+        "top_k": 3,
+    },
+    timeout=10,
+)
+hits = resp.json()
+for t in hits["hits"]["turns"]:
+    print(f"[{t['score']:.2f}] {t['text']}")
+```
+</CodeGroup>
+
+```json Response
+{
+  "hits": {
+    "observations": [],
+    "turns": [
+      {
+        "id": "c9fcfbf5...",
+        "text": "[Date: 2026-05-08T14:00:00Z] [user] I'm allergic to shellfish",
+        "score": 0.4268,
+        "kind": "turn",
+        "timestamp": "1778061473326"
+      }
+    ],
+    "entities": []
+  },
+  "timeline": null,
+  "confidence": 0.067,
+  "mode": "active",
+  "usage": { "tokens_in": 6, "tokens_out": 27 }
+}
+```

@@ -1,0 +1,132 @@
+---
+title: "FastAPI chatbot"
+description: "Drop-in chatbot backend with Tex memory."
+---
+
+Chatbot backend in ~40 lines. One Tex client per process; memory recall on every turn.
+
+## Layout
+
+```text
+app/
+├── deps.py        # Tex singleton
+├── main.py        # FastAPI app
+└── chat.py        # /chat endpoint
+```
+
+## Code
+
+<CodeGroup>
+```python deps.py
+from functools import cache
+from tex import Tex
+import os
+
+@cache
+def tex_client() -> Tex:
+    return Tex(
+        api_key=os.environ["TEX_API_KEY"],
+        base_url=os.environ.get(
+            "TEX_BASE_URL", "https://api.getmetacognition.com"
+        ),
+        timeout=10,
+    )
+```
+
+```python chat.py
+from datetime import datetime, timezone
+from fastapi import APIRouter, Depends, Header
+from pydantic import BaseModel
+from tex import Tex, RateLimitError, APITimeoutError
+
+from .deps import tex_client
+
+router = APIRouter()
+
+def now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+class ChatBody(BaseModel):
+    text: str
+    session_id: str
+
+@router.post("/chat")
+def chat(
+    body: ChatBody,
+    x_user_id: str = Header(...),
+    tex: Tex = Depends(tex_client),
+):
+    sid = f"u_{x_user_id}-{body.session_id}"
+
+    # 1. Recall — gracefully degrade on timeout/quota
+    memory: list[str] = []
+    try:
+        hits = tex.recall(q=body.text, session_id=sid, top_k=5)
+        memory = [h.text for h in hits.hits.turns]
+    except (RateLimitError, APITimeoutError):
+        memory = []
+
+    # 2. Generate — your LLM of choice
+    answer = your_llm.complete(body.text, memory=memory)
+
+    # 3. Remember (fire and forget — see notes)
+    tex.conversations.remember(session_id=sid, turns=[
+        {"role": "user",      "text": body.text, "timestamp": now_iso()},
+        {"role": "assistant", "text": answer,    "timestamp": now_iso()},
+    ])
+
+    return {"answer": answer}
+```
+
+```python main.py
+from fastapi import FastAPI
+from .chat import router
+
+app = FastAPI()
+app.include_router(router)
+```
+</CodeGroup>
+
+## Run
+
+```bash
+export TEX_API_KEY=tex_live_...
+uvicorn app.main:app --reload
+```
+
+## Production tweaks
+
+<AccordionGroup>
+  <Accordion title="Push remember to a worker" icon="forward">
+    Holding the request open for `remember` adds 100–250ms to your tail latency. Move it off the request path:
+
+    ```python
+    # using starlette BackgroundTasks
+    from fastapi import BackgroundTasks
+
+    @router.post("/chat")
+    def chat(body: ChatBody, bg: BackgroundTasks, tex: Tex = Depends(tex_client)):
+        ...
+        bg.add_task(
+            tex.conversations.remember,
+            session_id=sid,
+            turns=[user_turn, assistant_turn],
+        )
+        return {"answer": answer}
+    ```
+  </Accordion>
+  <Accordion title="Bound recall latency" icon="stopwatch">
+    Set `timeout=2.0` on the constructor; catch `APITimeoutError` and fall back to no-memory generation. Keeps your p99 deterministic.
+  </Accordion>
+  <Accordion title="Health check" icon="heart-pulse">
+    ```python
+    @app.get("/healthz")
+    def healthz(tex: Tex = Depends(tex_client)):
+        try:
+            tex.usage.today()
+            return {"ok": True}
+        except Exception as e:
+            return {"ok": False, "error": str(e)}, 503
+    ```
+  </Accordion>
+</AccordionGroup>

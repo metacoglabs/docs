@@ -1,0 +1,85 @@
+---
+title: "POST /signup"
+description: "Create a new org and mint the first API key."
+api: "POST https://api.getmetacognition.com/signup"
+---
+
+Creates a new organization, a default user inside it, and the first API key for that user. The plaintext API key appears in the response **once and only once**.
+
+## Body
+
+```json
+{
+  "name": "acme corp"        // optional, used as a label
+}
+```
+
+<ParamField body="name" type="string">
+  Human-readable label for the org. Optional.
+</ParamField>
+
+## Response — `201`
+
+<ResponseField name="org_id" type="string">
+  Server-generated org id. Format `org_<10 chars>`.
+</ResponseField>
+
+<ResponseField name="user_id" type="string">
+  Server-generated user id inside that org.
+</ResponseField>
+
+<ResponseField name="api_key" type="string">
+  The plaintext API key. **Save it now — there's no recovery.**
+</ResponseField>
+
+<ResponseField name="key" type="object">
+  Metadata about the key (id, prefix, display_id, name, scopes, timestamps).
+</ResponseField>
+
+## Example
+
+<CodeGroup>
+```bash cURL
+curl -X POST https://api.getmetacognition.com/signup \
+  -H 'content-type: application/json' \
+  -d '{"name": "acme corp"}'
+```
+
+```python Python
+import httpx
+
+resp = httpx.post(
+    "https://api.getmetacognition.com/signup",
+    json={"name": "acme corp"},
+)
+data = resp.json()
+api_key = data["api_key"]   # store this securely
+```
+</CodeGroup>
+
+```json Response
+{
+  "org_id": "org_79d0fHwDRhoZ8Ww7",
+  "user_id": "user_FuHtj0C14AaKHJq1",
+  "api_key": "tex_live_LfbRIlFWtazFQaLw2C05IBTuoKX0B-sLFZ5XOHmkSJ8",
+  "key": {
+    "id": "a1247653-9646-4f32-b04f-72d2c0f5355b",
+    "prefix": "tex_live_",
+    "display_id": "LfbRIlFW",
+    "name": "acme corp",
+    "scopes": ["*"],
+    "is_active": true,
+    "created_at": "2026-05-08T09:56:42.855738",
+    "last_used_at": null,
+    "revoked_at": null
+  }
+}
+```
+
+<Warning>
+  The `api_key` field appears only in this response. Persist it server-side. We can't recover or re-display it.
+</Warning>
+
+<Note>
+  This endpoint is unauthenticated by design — anyone can create an org. To gate it (e.g. private launch), put your existing auth provider in front (Auth0, Clerk) and only forward to `/signup` after their checks pass.
+</Note>

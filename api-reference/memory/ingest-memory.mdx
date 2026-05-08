@@ -1,0 +1,125 @@
+---
+title: "POST /ingestion/memory"
+description: "Persist conversation turns into memory."
+api: "POST https://api.getmetacognition.com/ingestion/memory"
+---
+
+The REST equivalent of `tex.conversations.remember(...)`. Active write completes synchronously; passive enrichment runs in the background.
+
+## Headers
+
+```http
+Authorization: Bearer <access_token>
+Content-Type: application/json
+```
+
+## Body
+
+```json
+{
+  "scope": {
+    "org_id": "org_...",
+    "user_id": "user_...",
+    "session_id": "chat-1"
+  },
+  "turns": [
+    {
+      "role": "user",
+      "text": "I'm allergic to shellfish.",
+      "timestamp": "2026-05-08T14:00:00Z"
+    },
+    {
+      "role": "assistant",
+      "text": "Got it.",
+      "timestamp": "2026-05-08T14:00:01Z"
+    }
+  ],
+  "metadata": { "channel": "support" }
+}
+```
+
+<ParamField body="scope.org_id" type="string" required>
+  Your org id. Server ignores this for tenancy and uses the JWT's claim instead — pass it for forward compatibility.
+</ParamField>
+
+<ParamField body="scope.user_id" type="string">
+  End-user partition. Defaults to the JWT's user.
+</ParamField>
+
+<ParamField body="scope.session_id" type="string" required>
+  Conversation/channel/task id.
+</ParamField>
+
+<ParamField body="turns" type="array" required>
+  Each turn: `{role, text, timestamp, observations?}`. See [memory model](/concepts/memory-model).
+</ParamField>
+
+<ParamField body="metadata" type="object">
+  Free-form metadata attached to the batch.
+</ParamField>
+
+## Response — `202 Accepted`
+
+<ResponseField name="job_id" type="string">
+  Stable id for this write.
+</ResponseField>
+
+<ResponseField name="active_fragment_ids" type="array[string]">
+  Active-memory fragment ids — already recallable.
+</ResponseField>
+
+<ResponseField name="passive_job_id" type="string | null">
+  Background enrichment job id, when one is needed.
+</ResponseField>
+
+<ResponseField name="usage" type="object">
+  `{tokens_in, tokens_out}` billed for this call.
+</ResponseField>
+
+```json Response
+{
+  "job_id": "1737f27b090743bab9f129b48fd44831",
+  "active_fragment_ids": [
+    "c9fcfbf51b03bbc3c05075671b5fa5aa7e34d803c13b554391746188bfa22d22"
+  ],
+  "passive_job_id": null,
+  "usage": { "tokens_in": 6, "tokens_out": 0 }
+}
+```
+
+## Example
+
+<CodeGroup>
+```bash cURL
+curl -X POST https://api.getmetacognition.com/ingestion/memory \
+  -H "Authorization: Bearer $JWT" \
+  -H 'content-type: application/json' \
+  -d '{
+    "scope": {"org_id":"org_…","session_id":"chat-1"},
+    "turns": [
+      {"role":"user","text":"hello","timestamp":"2026-05-08T14:00:00Z"}
+    ]
+  }'
+```
+
+```python Python
+import httpx
+
+resp = httpx.post(
+    "https://api.getmetacognition.com/ingestion/memory",
+    headers={"Authorization": f"Bearer {jwt}"},
+    json={
+        "scope": {"org_id": "org_…", "session_id": "chat-1"},
+        "turns": [
+            {"role": "user", "text": "hello", "timestamp": "2026-05-08T14:00:00Z"}
+        ],
+    },
+    timeout=10,
+)
+resp.raise_for_status()
+```
+</CodeGroup>
+
+## Idempotency
+
+Tex computes a stable hash per turn (`role + text + timestamp`). Re-sending the same turn is a no-op — no duplicate fragments, no double-billing. Safe to retry on network failure.

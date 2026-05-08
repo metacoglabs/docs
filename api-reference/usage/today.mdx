@@ -1,0 +1,76 @@
+---
+title: "GET /usage/today"
+description: "Today's token totals and the active daily quota."
+api: "GET https://api.getmetacognition.com/usage/today"
+---
+
+Returns today's `tokens_in` / `tokens_out` plus the limits that will trigger a `429`. Doesn't count against your own quota — poll as often as you want.
+
+## Headers
+
+```http
+Authorization: Bearer <access_token>
+```
+
+## Response — `200`
+
+<ResponseField name="tokens_in_used" type="integer">
+  Tokens billed today, ingress.
+</ResponseField>
+
+<ResponseField name="tokens_out_used" type="integer">
+  Tokens billed today, egress.
+</ResponseField>
+
+<ResponseField name="tokens_in_limit" type="integer">
+  Daily ingress cap.
+</ResponseField>
+
+<ResponseField name="tokens_out_limit" type="integer">
+  Daily egress cap.
+</ResponseField>
+
+<ResponseField name="period" type="string">
+  Always `"day_utc"`.
+</ResponseField>
+
+<ResponseField name="period_start" type="string">
+  ISO 8601 timestamp at 00:00 UTC today.
+</ResponseField>
+
+<ResponseField name="period_end" type="string">
+  ISO 8601 timestamp at 00:00 UTC tomorrow (when limits reset).
+</ResponseField>
+
+## Example
+
+<CodeGroup>
+```bash cURL
+curl -H "Authorization: Bearer $JWT" \
+  https://api.getmetacognition.com/usage/today
+```
+
+```python Python
+import httpx
+
+resp = httpx.get(
+    "https://api.getmetacognition.com/usage/today",
+    headers={"Authorization": f"Bearer {jwt}"},
+)
+data = resp.json()
+print(f"in:  {data['tokens_in_used']:,} / {data['tokens_in_limit']:,}")
+print(f"out: {data['tokens_out_used']:,} / {data['tokens_out_limit']:,}")
+```
+</CodeGroup>
+
+```json Response
+{
+  "tokens_in_used": 12,
+  "tokens_out_used": 27,
+  "tokens_in_limit": 1000000,
+  "tokens_out_limit": 5000000,
+  "period": "day_utc",
+  "period_start": "2026-05-08T00:00:00+00:00",
+  "period_end": "2026-05-09T00:00:00+00:00"
+}
+```

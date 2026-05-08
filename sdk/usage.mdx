@@ -1,0 +1,119 @@
+---
+title: "usage"
+description: "Read your org's token totals."
+---
+
+```python
+tex.usage.today()                    # today's usage + daily quota
+tex.usage.summary()                  # current calendar month
+tex.usage.summary(month="2026-03")   # specific month
+```
+
+These calls don't count against your own quota — query them as often as you want.
+
+## `tex.usage.today()`
+
+```python
+status = tex.usage.today()
+```
+
+<ResponseField name="tokens_in_used" type="int">
+  Tokens you've sent us today (UTC day).
+</ResponseField>
+
+<ResponseField name="tokens_out_used" type="int">
+  Tokens we've returned to you today.
+</ResponseField>
+
+<ResponseField name="tokens_in_limit" type="int">
+  Daily ingress cap. `1_000_000` on the free tier.
+</ResponseField>
+
+<ResponseField name="tokens_out_limit" type="int">
+  Daily egress cap. `5_000_000` on the free tier.
+</ResponseField>
+
+<ResponseField name="period" type="str">
+  Always `"day_utc"`.
+</ResponseField>
+
+<ResponseField name="period_start" type="str">
+  ISO 8601 timestamp at 00:00 UTC today.
+</ResponseField>
+
+<ResponseField name="period_end" type="str">
+  ISO 8601 timestamp at 00:00 UTC tomorrow.
+</ResponseField>
+
+```python
+status = tex.usage.today()
+print(f"in:  {status.tokens_in_used:,} / {status.tokens_in_limit:,}")
+print(f"out: {status.tokens_out_used:,} / {status.tokens_out_limit:,}")
+print(f"resets at: {status.period_end}")
+```
+
+## `tex.usage.summary(month=None)`
+
+Calendar-month rollup, UTC.
+
+<ParamField path="month" type="str | None">
+  `"YYYY-MM"`. Omitted = current month.
+</ParamField>
+
+<ResponseField name="period" type="str">
+  Always `"month"`.
+</ResponseField>
+
+<ResponseField name="start" type="str">
+  ISO 8601 timestamp of the first second of the month.
+</ResponseField>
+
+<ResponseField name="end" type="str">
+  ISO 8601 timestamp of the first second of the next month.
+</ResponseField>
+
+<ResponseField name="tokens_in" type="int">
+  Total ingress tokens for the month.
+</ResponseField>
+
+<ResponseField name="tokens_out" type="int">
+  Total egress tokens for the month.
+</ResponseField>
+
+```python
+import pandas as pd
+
+months = ["2026-01","2026-02","2026-03","2026-04","2026-05"]
+df = pd.DataFrame([
+    {"month": m, **tex.usage.summary(month=m).__dict__}
+    for m in months
+])
+df.set_index("month")[["tokens_in","tokens_out"]].plot.bar()
+```
+
+## Patterns
+
+<AccordionGroup>
+  <Accordion title="Per-response usage" icon="receipt">
+    Every `remember` and `recall` carries `Usage` directly on the response — no extra round-trip:
+
+    ```python
+    hits = tex.recall(q="...", session_id=sid)
+    print(hits.usage.tokens_in, hits.usage.tokens_out)
+    ```
+  </Accordion>
+  <Accordion title="Quota-aware routing" icon="route">
+    ```python
+    if tex.usage.today().tokens_in_used > 0.9 * tex.usage.today().tokens_in_limit:
+        return generate_without_memory(query)
+    ```
+    Cache `tex.usage.today()` for a minute or two on your side — this is just for soft gating.
+  </Accordion>
+  <Accordion title="Build a usage chart" icon="chart-bar">
+    Use `summary(month="YYYY-MM")` for the last 6 months → render with Plotly, Recharts, or whatever you use.
+  </Accordion>
+</AccordionGroup>
+
+<Card title="Next: errors" icon="triangle-exclamation" href="/sdk/errors">
+  Every exception class and how to handle it.
+</Card>
