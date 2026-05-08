@@ -90,14 +90,6 @@ python rag.py
 
 ## Notes
 
-<AccordionGroup>
-  <Accordion title="Cite memory in your answers" icon="quote-left">
-    Pass each hit's `id` plus `text` and instruct GPT-4o to cite the id in brackets `[mem:abc]`. You can later resolve the ids back to the turn for click-through.
-  </Accordion>
-  <Accordion title="Confidence-gated mode bump" icon="gauge">
-    If `confidence < 0.4`, retry with `mode="deep"`. Costs an extra 1–4s but rescues a meaningful fraction of weak-recall cases.
-  </Accordion>
-  <Accordion title="Streaming" icon="bolt">
-    `gpt.chat.completions.create(..., stream=True)` works as expected. Push `remember` to a background task so it doesn't delay your stream.
-  </Accordion>
-</AccordionGroup>
+- **Cite sources.** Pass each hit's `id` to GPT-4o and instruct it to cite `[mem:abc]` — you can later resolve those IDs back to the turn for click-through.
+- **Confidence-gated retry.** If `confidence < 0.4`, retry with `mode="deep"`. Costs +1–4s, rescues most weak-recall cases.
+- **Streaming.** `stream=True` works as expected. Push `remember` to a background task so it doesn't delay the stream.

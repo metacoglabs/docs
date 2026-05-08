@@ -48,14 +48,6 @@ import tex; print(tex.__version__)
 
 ## Common-but-not-bugs
 
-<AccordionGroup>
-  <Accordion title="My turns appear out of order" icon="arrow-down-wide-short">
-    Recall is ordered by relevance, not chronology. For chronological order, use `include_timeline=True` and read the timeline rather than the hits list.
-  </Accordion>
-  <Accordion title="Confidence varies between identical queries" icon="dice">
-    Some randomness is intrinsic (cross-encoder ties broken by hash). Variation > 0.1 across identical queries suggests an actual issue — file a ticket.
-  </Accordion>
-  <Accordion title="`session_id` mismatch returns nothing" icon="layer-group">
-    Yes, by design. Sessions are isolated. Read [scopes](/concepts/scopes) for the patterns that span sessions.
-  </Accordion>
-</AccordionGroup>
+- **Turns out of order?** Recall ranks by relevance, not chronology. For chronological order, set `include_timeline=True`.
+- **Confidence varies between identical queries?** Some randomness is intrinsic (rerank ties broken by hash). Variation > 0.1 suggests an actual issue — file a ticket.
+- **`session_id` mismatch returns nothing.** By design — sessions are isolated. See [scopes](/concepts/scopes) for cross-session patterns.

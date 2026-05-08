@@ -3,100 +3,54 @@ title: "Scopes"
 description: "Org / user / session — how Tex partitions memory."
 ---
 
-Every turn and every recall is scoped by a `(org_id, user_id, session_id)` tuple.
+Every turn and every recall is keyed by `(org_id, user_id, session_id)`.
 
-| Field | Set by | Required? | What it controls |
-| --- | --- | --- | --- |
-| `org_id` | The JWT (your API key). Server-injected. | ✓ | Billing entity. Top-level isolation. |
-| `user_id` | The JWT, or override per-call for sub-user scoping. | ✓ | End-user partition within your org. |
-| `session_id` | **You, per call.** | ✓ for `remember` and `recall` | A single conversation, channel, or task. |
+| Field | Set by | Required |
+| --- | --- | --- |
+| `org_id` | The JWT (your API key) — server-injected | ✓ |
+| `user_id` | The JWT, or override per-call for sub-user scoping | ✓ |
+| `session_id` | **You, per call.** | ✓ |
+
+`org_id` is locked to your API key. You almost never set it manually. `session_id` is where you do the work.
 
 ## Picking a `session_id`
 
-`session_id` is a free-form string. Reuse it; don't enumerate.
+Free-form string. Reuse, don't enumerate.
 
 <CardGroup cols={2}>
   <Card title="One conversation" icon="message">
-    `f"chat-{conversation_uuid}"` — the natural choice for a chatbot.
+    `chat-{conversation_uuid}`
   </Card>
-  <Card title="Slack/Discord channel" icon="hashtag">
-    `f"slack-{channel_id}"` — shared memory for everyone in the channel.
+  <Card title="Slack channel" icon="hashtag">
+    `slack-{channel_id}`
   </Card>
   <Card title="Per-task agent" icon="robot">
-    `f"agent-{task_id}"` — isolate each agent run from the others.
+    `agent-{task_id}`
   </Card>
   <Card title="Lifetime memory" icon="infinity">
-    `f"bio-{user_id}"` — facts that persist regardless of conversation.
+    `bio-{user_id}`
   </Card>
 </CardGroup>
 
-<Tip>
-  For "user-wide" memory layered with per-conversation memory, write to *both* `bio-{user_id}` and `chat-{conv_id}`, and recall against both with two calls. There's no extra fee for empty sessions.
-</Tip>
-
 ## Multi-user SaaS
 
-If you sell your product to end-users (each gets their own memory), pick one of two patterns.
+Each end-user gets their own memory. **Encode the end-user into the `session_id`** with one shared client:
 
-<Tabs>
-  <Tab title="Pattern A — one Tex key, sub-user scoping (recommended)">
-    ```python
-    # One platform key in your secrets manager.
-    tex = Tex(
-        api_key=os.environ["TEX_API_KEY"],
-        base_url=BASE_URL,
-        user_id=f"u_{end_user_id}",   # tells Tex "this turn is end-user X's"
-    )
-    ```
-    Memory is partitioned per `user_id`. Single bill. Single dashboard. Easy ops.
-  </Tab>
-  <Tab title="Pattern B — one Tex key per end-user">
-    ```python
-    # Mint a key per end-user via /signup, store in your DB.
-    user_key = mint_tex_key_for(user_id)
-    tex = Tex(api_key=user_key, base_url=BASE_URL)
-    ```
-    Heavier — but lets you give each end-user direct dashboard access to their own usage.
-  </Tab>
-</Tabs>
+```python
+tex = Tex(api_key=os.environ["TEX_API_KEY"], base_url=BASE_URL)
 
-Pattern A covers 95% of cases. Reach for Pattern B only when you're *reselling* Tex (each customer gets their own bill and dashboard).
+def chat(user_msg: str, x_user_id: str, conv_id: str):
+    sid = f"u_{x_user_id}-{conv_id}"
+    hits = tex.recall(q=user_msg, session_id=sid)
+    ...
+```
 
-## What about `org_id`?
-
-You don't normally pass `org_id` — it's bound to the JWT from your API key, server-side. The SDK auto-fills it on every call from `/auth/verify`.
-
-You *can* set `Tex(org_id="...")` to assert what you expect — useful as a sanity check during local dev — but the server uses the JWT-bound value for billing and tenancy isolation regardless.
-
-## Multiple users, single client
-
-Don't construct a `Tex` per request in a hot loop:
-
-<Tabs>
-  <Tab title="❌ Slow">
-    ```python
-    @app.post("/chat")
-    def chat(body: ChatBody, x_user_id: str = Header(...)):
-        tex = Tex(api_key=os.environ["TEX_API_KEY"], user_id=f"u_{x_user_id}")
-        return tex.recall(...)   # opens a new HTTPS connection every time
-    ```
-  </Tab>
-  <Tab title="✅ Fast">
-    ```python
-    tex = Tex(api_key=os.environ["TEX_API_KEY"], base_url=BASE_URL)
-
-    @app.post("/chat")
-    def chat(body: ChatBody, x_user_id: str = Header(...)):
-        # Pass user via the per-call scope (coming in SDK 1.2 — for now use Pattern A or a context-cached client)
-        return tex.recall(q=body.text, session_id=f"u_{x_user_id}-{body.sid}")
-    ```
-  </Tab>
-</Tabs>
+One API key, one bill, one client, full isolation between end-users.
 
 <Note>
-  Per-call user scoping is on the roadmap (SDK 1.2). Today, partition by encoding `user_id` into the `session_id` if you don't want to spin up multiple clients.
+  Per-call `user_id` scoping is on the SDK roadmap (1.2). Until then, encoding into `session_id` is the cleanest pattern. See the [multi-tenant SaaS recipe](/recipes/multi-tenant-saas).
 </Note>
 
-<Card title="Next: retrieval" icon="magnifying-glass" href="/concepts/retrieval">
-  Active vs deep, top_k tuning, confidence gating.
+<Card title="Next: retrieval" icon="magnifying-glass" href="/concepts/retrieval" horizontal>
+  Active vs deep, top_k, confidence.
 </Card>

@@ -124,37 +124,10 @@ tex.conversations.remember(session_id="chat-1", turns=turns)
 
 ## Best practices
 
-<AccordionGroup>
-  <Accordion title="Batch — don't call once per turn" icon="layer-group">
-    Pass dozens of turns in one call:
-
-    ```python
-    # ✅ batched
-    tex.conversations.remember(session_id=sid, turns=all_new_turns)
-
-    # ❌ chatty — wastes RTTs
-    for turn in all_new_turns:
-        tex.conversations.remember(session_id=sid, turns=[turn])
-    ```
-  </Accordion>
-  <Accordion title="Use UTC ISO 8601 timestamps" icon="clock">
-    Tex parses any reasonable ISO format, but UTC strings (`...Z` suffix) avoid timezone surprises in temporal queries.
-  </Accordion>
-  <Accordion title="Don't remember system messages" icon="filter">
-    They consume tokens and add noise to recall. Filter to user + assistant turns only.
-  </Accordion>
-  <Accordion title="Push to a background queue on the request path" icon="forward">
-    Users shouldn't wait for `remember`. Move it to Celery / RQ / a background task:
-
-    ```python
-    answer = generate(text, context=tex.recall(q=text, session_id=sid))
-    queue.enqueue(tex.conversations.remember,
-                  session_id=sid,
-                  turns=[user_turn, assistant_turn])
-    return answer
-    ```
-  </Accordion>
-</AccordionGroup>
+- **Batch.** Pass dozens of turns in one call. Don't loop one-per-turn.
+- **UTC ISO 8601** for timestamps (`...Z` suffix). Avoids timezone surprises in temporal queries.
+- **Skip system messages.** They consume tokens and add noise to recall.
+- **Background-task `remember`.** Users shouldn't wait for it on the request path — push to Celery / RQ / a `BackgroundTasks` queue.
 
 ## Idempotency
 

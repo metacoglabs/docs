@@ -77,17 +77,7 @@ Three things change for the better:
 
 ## Edge cases
 
-<AccordionGroup>
-  <Accordion title="Streaming responses" icon="bolt">
-    Stream the answer to the user as you have been; persist with `remember` *after* the stream completes. Use a background task so you don't delay the next request.
-  </Accordion>
-  <Accordion title="System messages" icon="filter">
-    Don't migrate system messages. They're not useful to recall and they consume tokens.
-  </Accordion>
-  <Accordion title="Tool calls / function calls" icon="screwdriver-wrench">
-    For OpenAI-style tool calls, store the *result* of the tool call as an assistant turn, not the raw JSON. Recall surfaces text, not structured payloads.
-  </Accordion>
-  <Accordion title="What if Redis was my only audit log?" icon="shield">
-    Tex isn't an audit store. If you need one, keep Redis (or move to a real audit log like CloudTrail-style append-only) for compliance, and use Tex for retrieval. Two systems, two purposes.
-  </Accordion>
-</AccordionGroup>
+- **Streaming responses.** Persist with `remember` *after* the stream completes. Background-task it so the next request isn't delayed.
+- **System messages.** Don't migrate them — they consume tokens and add no recall value.
+- **Tool calls.** Store the *result* of a tool call as an assistant turn, not the raw JSON. Recall surfaces text.
+- **Audit log.** Tex isn't an audit store. Keep Redis (or a real append-only log) for compliance and use Tex for retrieval — two systems, two purposes.

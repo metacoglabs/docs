@@ -1,119 +1,68 @@
 ---
 title: "Retrieval"
-description: "How recall works under the hood, and how to tune it."
+description: "Active vs deep, top_k tuning, confidence gating."
 ---
 
-`tex.recall(q="...")` is your read path. This page is what to know to get good results.
+`tex.recall(q, session_id, ...)` is your read path.
 
-## The pipeline
+## Modes
 
-```mermaid
-flowchart TD
-    Q[Your query] --> X[Query expansion]
-    X --> H[Hybrid retrieval]
-    H --> R[Cross-encoder rerank]
-    R --> C[Confidence calibration]
-    C --> O[Top-k hits + confidence]
+<CardGroup cols={2}>
+  <Card title="active (default)" icon="bolt">
+    Single-pass. **1.5–2.5s.** Use for every interactive call.
+  </Card>
+  <Card title="deep" icon="diagram-project">
+    Two-pass with iterative rerank. **3–6s.** For periodic analysis or low-confidence retries.
+  </Card>
+</CardGroup>
 
-    H -.-> V[Vector search]
-    H -.-> T[Temporal scoring]
-    H -.-> E[Entity graph hits]
-```
+## `top_k`
 
-| Stage | What happens | Why |
-| --- | --- | --- |
-| Query expansion | Your query is rewritten into 2–3 alternates | Catches paraphrases the embedding alone misses. |
-| Hybrid retrieval | Vector search + temporal + entity-graph hits, fused | Each modality has different failure modes. |
-| Rerank | Top ~50 candidates → cross-encoder | Precision over recall at the top. |
-| Calibration | Score → calibrated confidence | So `confidence = 0.7` actually means "70% chance these are relevant". |
-
-## `mode="active"` vs `mode="deep"`
-
-<Tabs>
-  <Tab title="active (default)">
-    Single-pass. **Latency: 1.5–2.5s.**
-
-    Use for: every interactive call. Real-time chat. Agent loops. Anything user-facing.
-
-    ```python
-    hits = tex.recall(q=user_msg, session_id=sid, top_k=5)
-    ```
-  </Tab>
-  <Tab title="deep">
-    Two-pass with iterative reranking. **Latency: 3–6s.**
-
-    Use for:
-    - "What do you remember about X?" (explicit user request)
-    - Periodic analysis tasks (weekly digests, summaries)
-    - Active mode returned `confidence < 0.4`
-
-    ```python
-    hits = tex.recall(q=user_msg, session_id=sid, mode="deep", top_k=10)
-    ```
-  </Tab>
-</Tabs>
-
-## Tuning `top_k`
-
-Defaults: **15** in `active` mode, **25** in `deep` mode. Server caps at **30** regardless of the value you send. Sensible explicit values:
+Defaults: **15** (active) / **25** (deep). Server caps at **30** regardless of what you send.
 
 | Use case | `top_k` |
 | --- | --- |
-| Live chat — small context window | 3–5 |
-| Live chat — large context window | 8–15 |
+| Live chat, small context | 3–5 |
+| Live chat, large context | 8–15 |
 | Summaries / digests | 20–30 |
 
-Larger `top_k` → more `tokens_out` billed. Send a smaller `top_k` if you only need a handful of hits.
+Larger `top_k` = more `tokens_out` billed.
 
-## Confidence-gated fallback
+## Confidence
+
+Every recall returns a `confidence ∈ [0, 1]`, calibrated so `P(hits relevant | c) ≈ c`.
+
+| Range | Meaning | Action |
+| --- | --- | --- |
+| ≥ 0.6 | Strong | Use as-is |
+| 0.3 – 0.6 | Useful but uncertain | Use, cite the sources |
+| < 0.3 | Weak | Try `mode="deep"`, or skip memory |
 
 ```python
 hits = tex.recall(q=q, session_id=sid)
-
 if hits.confidence < 0.3:
-    # Try deep mode before giving up
     hits = tex.recall(q=q, session_id=sid, mode="deep")
-
-if hits.confidence < 0.2:
-    # Still nothing — generate without memory
-    return llm.complete(prompt_without_memory)
-
-context = "\n".join(f"- {h.text}" for h in hits.hits.turns)
-return llm.complete(prompt_with(context))
 ```
 
 ## What's in a hit
 
 ```python
-@dataclass
-class RecallHit:
-    id: str             # stable identifier; persists across recalls
-    text: str           # the matched content
-    score: float        # raw relevance, 0.0–1.0
-    kind: str           # "turn" | "observation" | "entity"
-    timestamp: str | None
+RecallHit(id, text, score, kind, timestamp)        # turns + observations
+RecallEntity(id, label, score)                     # entities
 ```
 
-`RecallResponse.hits` exposes three lists:
+`hits.hits.turns` is what you stuff into a system prompt. `hits.hits.observations` are atomic facts. `hits.hits.entities` are linked things — useful for analytical queries.
+
+## Timeline
 
 ```python
-hits.hits.turns         # list[RecallHit]
-hits.hits.observations  # list[RecallHit]
-hits.hits.entities      # list[RecallEntity]   (with relationships)
+hits = tex.recall(q="when did we discuss pricing?",
+                  session_id=sid, include_timeline=True)
+print(hits.timeline)   # a pre-rendered chronological summary string
 ```
 
-For chatbot prompting, `turns` is usually enough. For analytical queries (e.g. "list all preferences"), prefer `observations`.
+`timeline` is an `Optional[str]` — drop it into a prompt as-is. It's not iterable.
 
-## Including the timeline
-
-```python
-hits = tex.recall(q="when did we discuss pricing?", session_id=sid, include_timeline=True)
-if hits.timeline:
-    print(hits.timeline)   # a pre-rendered chronological summary string
-```
-
-`timeline` is an `Optional[str]` — a pre-rendered chronological summary the server walks the temporal index to build. Treat it as a paragraph to drop into a prompt, not a structured array. Useful for "when did the user first mention X?" queries.
-
-<Card title="Next: usage & billing" icon="receipt" href="/concepts/usage-billing">
-  Tokens in / out, daily quotas, and cost control.
+<Card title="Next: usage & billing" icon="receipt" href="/concepts/usage-billing" horizontal>
+  Tokens in / out and quota.
 </Card>

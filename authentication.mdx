@@ -136,23 +136,10 @@ $ curl -X POST https://api.getmetacognition.com/auth/token-exchange \
 ```
 </CodeGroup>
 
-## FAQ
+<Note>
+  **Token lifetimes.** Access JWT lasts 24h. Refresh JWT lasts 7d. Beyond that, the SDK re-exchanges your API key automatically. JWTs are stateless — to invalidate one, revoke the underlying API key.
+</Note>
 
-<AccordionGroup>
-  <Accordion title="Is the JWT scoped to my org?">
-    Yes. The JWT contains your `org_id` and `user_id`, and every request is server-side scoped to those values. You cannot fake another org's data — the body's `scope.org_id` is ignored for billing and isolation.
-  </Accordion>
-  <Accordion title="What if my refresh token expires?">
-    Refresh tokens live 7 days. On the next call after expiry the SDK falls back to re-exchanging your API key. Result: zero customer impact for any app left idle ≤ 7 days; one extra round-trip beyond that.
-  </Accordion>
-  <Accordion title="Can I revoke a single JWT?">
-    No — JWTs are stateless. Revoke the API key instead; the JWT will fail to refresh on its next 401 and the client will surface `AuthenticationError`.
-  </Accordion>
-  <Accordion title="Is the API key the same as the JWT?">
-    No. API key (`tex_live_…`) is a long-lived secret you store. JWT (`eyJ…`) is a short-lived token derived from it. SDK handles the conversion; you never need to think about it.
-  </Accordion>
-</AccordionGroup>
-
-<Card title="Next: scopes" icon="layer-group" href="/concepts/scopes">
+<Card title="Next: scopes" icon="layer-group" href="/concepts/scopes" horizontal>
   How `org_id` / `user_id` / `session_id` partition memory.
 </Card>

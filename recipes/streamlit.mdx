@@ -109,8 +109,8 @@ streamlit run app.py
 
 Open with `?uid=alice` in the URL to scope memory to "alice" — `?uid=bob` gets a separate memory pool.
 
-## What's nice about this
+## Why this works
 
-- **Refresh-proof.** Streamlit's session state dies on refresh; Tex doesn't. Memory persists.
-- **No glue code.** Removed the entire chat-history-to-Postgres layer.
-- **Free debug panel.** The expander shows exactly which memory items the model saw — great for prompt-engineering iteration.
+- **Refresh-proof** — Streamlit's session state dies on refresh; Tex doesn't.
+- **No glue code** — no Postgres / Redis layer for chat history.
+- **Built-in debug panel** — the expander shows exactly which memory items the model saw.

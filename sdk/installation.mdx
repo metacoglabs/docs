@@ -10,24 +10,14 @@ description: "Install tex-sdk and verify the install."
 
 ## Install
 
-<CodeGroup>
-
-```bash pip
+```bash
 pip install tex-sdk
 ```
 
-```bash uv
-uv add tex-sdk
-```
-
-```bash poetry
-poetry add tex-sdk
-```
-
-</CodeGroup>
+Or `uv add tex-sdk` / `poetry add tex-sdk`.
 
 <Note>
-  PyPI distribution name is `tex-sdk`. Import name is `tex`:
+  PyPI distribution is `tex-sdk`. Import name is `tex`:
 
   ```python
   from tex import Tex
@@ -43,26 +33,11 @@ python -c "import tex; print(tex.__version__)"
 
 ## Pin a version
 
-<CodeGroup>
-
 ```text requirements.txt
 tex-sdk>=1.1.0,<2
 ```
 
-```toml pyproject.toml (PEP 621)
-[project]
-dependencies = [
-  "tex-sdk>=1.1.0,<2",
-]
-```
-
-```toml pyproject.toml (poetry)
-[tool.poetry.dependencies]
-python = "^3.9"
-tex-sdk = "^1.1.0"
-```
-
-</CodeGroup>
+For PEP 621 `pyproject.toml`, add `"tex-sdk>=1.1.0,<2"` under `[project].dependencies`. For Poetry, `tex-sdk = "^1.1.0"` under `[tool.poetry.dependencies]`.
 
 ## Optional extras
 

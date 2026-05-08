@@ -75,21 +75,6 @@ if __name__ == "__main__":
 
 ## Patterns
 
-<AccordionGroup>
-  <Accordion title="Per-user vs per-channel memory" icon="users">
-    - **Channel-scoped** (above): everyone in `#general` shares one memory pool. Best for team knowledge.
-    - **Per-user**: prefix the user id into the session: `f"slack-{channel}-{user}"`. Best for DMs or private notes.
-  </Accordion>
-  <Accordion title="Skip noisy messages" icon="filter">
-    Filter out joins, leaves, file uploads, and reactions before calling `remember`. Saves tokens and reduces noise in recall.
-  </Accordion>
-  <Accordion title="Acknowledge slow recalls" icon="hourglass">
-    `recall` takes 1–3s. Send a "🤔 thinking" reaction immediately, then update with the answer:
-
-    ```python
-    app.client.reactions_add(channel=event["channel"], timestamp=event["ts"], name="thinking_face")
-    # ... call tex.recall ...
-    app.client.reactions_remove(channel=event["channel"], timestamp=event["ts"], name="thinking_face")
-    ```
-  </Accordion>
-</AccordionGroup>
+- **Channel vs DM memory.** `slack-{channel}` shares memory across everyone in the channel. For private notes use `slack-{channel}-{user}`.
+- **Skip noisy messages.** Filter joins, leaves, uploads, and reactions before `remember`. Saves tokens and reduces recall noise.
+- **Acknowledge slow recalls.** `recall` takes 1–3s. React with `:thinking_face:` immediately, then post the answer.

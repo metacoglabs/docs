@@ -64,21 +64,11 @@ These are Tex-only verbs you can adopt incrementally:
   </Step>
 </Steps>
 
-## Behavioral differences worth knowing
+## Behavioral differences
 
-<AccordionGroup>
-  <Accordion title="Auth model" icon="key">
-    Supermemory uses the API key directly as Bearer. Tex does that for `/v3/*` and `/v4/*` (compat paths) but exchanges to JWT for Tex-native paths (`/recall`, `/ingestion/memory`, `/usage/*`). The SDK handles both transparently.
-  </Accordion>
-  <Accordion title="Retention" icon="hard-drive">
-    Both are persistent. Tex doesn't have a "free tier expires after 30 days" wipe — your memory stays until you delete it.
-  </Accordion>
-  <Accordion title="Pricing model" icon="receipt">
-    Tex bills on tokens (`tokens_in` / `tokens_out`), not document count. For chatty workloads with short turns, this is usually cheaper. For document-heavy ingestion, run `tex.usage.summary()` after a representative day to compare.
-  </Accordion>
-  <Accordion title="Profiles" icon="user">
-    Tex's `profile` aggregates over `container_tag` like Supermemory's. Backfill works without changes.
-  </Accordion>
-</AccordionGroup>
+- **Auth.** Supermemory uses the API key as Bearer. Tex does the same on `/v3/*` and `/v4/*` (compat paths) but exchanges to JWT for Tex-native paths. The SDK handles both transparently.
+- **Retention.** Persistent on both. No "free tier expires" wipe on Tex — your memory stays until you delete it.
+- **Pricing.** Tex bills on `tokens_in` / `tokens_out`, not document count. Chatty workloads are usually cheaper; document-heavy ones — measure with `tex.usage.summary()` after a representative day.
+- **Profiles.** Tex's `profile` aggregates over `container_tag` like Supermemory's. Backfill works without changes.
 
-If you hit a Supermemory verb that doesn't behave identically, file an issue — we'll fix the gap or document the diff.
+If you hit a Supermemory verb that doesn't behave identically, file an issue.

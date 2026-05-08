@@ -93,26 +93,23 @@ df.set_index("month")[["tokens_in","tokens_out"]].plot.bar()
 
 ## Patterns
 
-<AccordionGroup>
-  <Accordion title="Per-response usage" icon="receipt">
-    Every `remember` and `recall` carries `Usage` directly on the response — no extra round-trip:
+- **Per-response usage** is on every `remember` / `recall`:
 
-    ```python
-    hits = tex.recall(q="...", session_id=sid)
-    print(hits.usage.tokens_in, hits.usage.tokens_out)
-    ```
-  </Accordion>
-  <Accordion title="Quota-aware routing" icon="route">
-    ```python
-    if tex.usage.today().tokens_in_used > 0.9 * tex.usage.today().tokens_in_limit:
-        return generate_without_memory(query)
-    ```
-    Cache `tex.usage.today()` for a minute or two on your side — this is just for soft gating.
-  </Accordion>
-  <Accordion title="Build a usage chart" icon="chart-bar">
-    Use `summary(month="YYYY-MM")` for the last 6 months → render with Plotly, Recharts, or whatever you use.
-  </Accordion>
-</AccordionGroup>
+  ```python
+  hits = tex.recall(q="...", session_id=sid)
+  print(hits.usage.tokens_in, hits.usage.tokens_out)
+  ```
+
+- **Quota-aware routing** — gate non-essential paths past 90%:
+
+  ```python
+  if tex.usage.today().tokens_in_used > 0.9 * tex.usage.today().tokens_in_limit:
+      return generate_without_memory(query)
+  ```
+
+  Cache `usage.today()` on your side (≤ 60s) — this is soft gating, not strict.
+
+- **Usage charts** — call `summary(month="YYYY-MM")` for each of the last 6 months and render with whatever charting lib you use.
 
 <Card title="Next: errors" icon="triangle-exclamation" href="/sdk/errors">
   Every exception class and how to handle it.

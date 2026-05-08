@@ -96,37 +96,29 @@ uvicorn app.main:app --reload
 
 ## Production tweaks
 
-<AccordionGroup>
-  <Accordion title="Push remember to a worker" icon="forward">
-    Holding the request open for `remember` adds 100–250ms to your tail latency. Move it off the request path:
+**Push `remember` to a background task.** Holding the request open for the write adds 100–250ms to tail latency:
 
-    ```python
-    # using starlette BackgroundTasks
-    from fastapi import BackgroundTasks
+```python
+from fastapi import BackgroundTasks
 
-    @router.post("/chat")
-    def chat(body: ChatBody, bg: BackgroundTasks, tex: Tex = Depends(tex_client)):
-        ...
-        bg.add_task(
-            tex.conversations.remember,
-            session_id=sid,
-            turns=[user_turn, assistant_turn],
-        )
-        return {"answer": answer}
-    ```
-  </Accordion>
-  <Accordion title="Bound recall latency" icon="stopwatch">
-    Set `timeout=2.0` on the constructor; catch `APITimeoutError` and fall back to no-memory generation. Keeps your p99 deterministic.
-  </Accordion>
-  <Accordion title="Health check" icon="heart-pulse">
-    ```python
-    @app.get("/healthz")
-    def healthz(tex: Tex = Depends(tex_client)):
-        try:
-            tex.usage.today()
-            return {"ok": True}
-        except Exception as e:
-            return {"ok": False, "error": str(e)}, 503
-    ```
-  </Accordion>
-</AccordionGroup>
+@router.post("/chat")
+def chat(body: ChatBody, bg: BackgroundTasks, tex: Tex = Depends(tex_client)):
+    ...
+    bg.add_task(tex.conversations.remember,
+                session_id=sid, turns=[user_turn, assistant_turn])
+    return {"answer": answer}
+```
+
+**Bound recall latency** with `Tex(timeout=2.0)`; catch `APITimeoutError` and degrade to no-memory generation.
+
+**Health check:**
+
+```python
+@app.get("/healthz")
+def healthz(tex: Tex = Depends(tex_client)):
+    try:
+        tex.usage.today()
+        return {"ok": True}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}, 503
+```

@@ -1,157 +1,72 @@
 ---
 title: "Quickstart"
-description: "Make your first recall in under five minutes."
+description: "First call in five minutes."
 ---
 
-<Tip>
-  Already have an API key? Skip to [Step 3](#3-make-your-first-call).
-</Tip>
-
-## 1. Get an API key
-
 <Steps>
-  <Step title="Open the dashboard">
-    Go to [app.getmetacognition.com](https://app.getmetacognition.com) and click **Create account**.
+  <Step title="Get an API key">
+    Sign up at [app.getmetacognition.com](https://app.getmetacognition.com/signup) and copy the key shown once.
+
+    <Warning>
+      The key appears only on the screen after signup — store it now.
+    </Warning>
   </Step>
-  <Step title="Pick an org name">
-    This is the billing entity. You can rename it later.
+
+  <Step title="Install">
+    ```bash
+    pip install tex-sdk
+    ```
+
+    Or `uv add tex-sdk` / `poetry add tex-sdk`. Requires Python ≥ 3.9. Distribution name is `tex-sdk`; import name is `tex`.
   </Step>
-  <Step title="Copy the key">
-    The screen shows your API key **once**. It looks like `tex_live_xxxxxxxx…`. Stash it in your secrets manager — you cannot recover it.
+
+  <Step title="Make your first call">
+    ```python first_call.py
+    import os
+    from tex import Tex
+
+    tex = Tex(
+        api_key=os.environ["TEX_API_KEY"],
+        base_url="https://api.getmetacognition.com",
+    )
+
+    tex.conversations.remember(session_id="chat-1", turns=[
+        {"role": "user", "text": "I'm allergic to shellfish.",
+         "timestamp": "2026-05-08T14:00:00Z"},
+    ])
+
+    hits = tex.recall(q="any food restrictions?", session_id="chat-1")
+    for h in hits.hits.turns:
+        print(f"[{h.score:.2f}] {h.text}")
+
+    print("confidence:", hits.confidence)
+    print("usage:", hits.usage.tokens_in, "in /", hits.usage.tokens_out, "out")
+    ```
+
+    ```bash
+    export TEX_API_KEY="tex_live_..."
+    python first_call.py
+    ```
   </Step>
 </Steps>
 
-## 2. Install the SDK
-
-<CodeGroup>
-
-```bash pip
-pip install tex-sdk
-```
-
-```bash uv
-uv add tex-sdk
-```
-
-```bash poetry
-poetry add tex-sdk
-```
-
-</CodeGroup>
-
-The PyPI distribution is `tex-sdk`. The import name is `tex`:
-
-```python
-from tex import Tex
-```
-
-<Note>
-  Requires Python ≥ 3.9. The SDK pulls in `httpx[http2]` automatically.
-</Note>
-
-## 3. Make your first call
-
-Save your key as `TEX_API_KEY` and run:
-
-```python first_call.py
-import os
-from tex import Tex
-
-tex = Tex(
-    api_key=os.environ["TEX_API_KEY"],
-    base_url="https://api.getmetacognition.com",
-)
-
-# Remember a few turns
-tex.conversations.remember(
-    session_id="chat-1",
-    turns=[
-        {
-            "role": "user",
-            "text": "I'm allergic to shellfish.",
-            "timestamp": "2026-05-08T14:00:00Z",
-        },
-        {
-            "role": "assistant",
-            "text": "Got it — I'll avoid shellfish in suggestions.",
-            "timestamp": "2026-05-08T14:00:01Z",
-        },
-    ],
-)
-
-# Recall the relevant slice
-hits = tex.recall(
-    q="any food restrictions I should know about?",
-    session_id="chat-1",
-    top_k=5,
-)
-
-for hit in hits.hits.turns:
-    print(f"[{hit.score:.2f}] {hit.text}")
-
-print(f"confidence: {hits.confidence:.2f}")
-print(f"tokens used: in={hits.usage.tokens_in} out={hits.usage.tokens_out}")
-```
-
-Run it:
-
-```bash
-export TEX_API_KEY="tex_live_..."
-python first_call.py
-```
-
-Expected output:
-
-```text
-[0.42] [Date: 2026-05-08T14:00:00Z] [user] I'm allergic to shellfish.
-confidence: 0.07
-tokens used: in=6 out=27
-```
-
 <Tip>
-  Confidence is low here because there's only one turn in memory. Add more — you'll see it climb.
+  Confidence will be low when memory is fresh — keep adding turns and watch it climb.
 </Tip>
 
-## 4. See your usage
-
-```python
-status = tex.usage.today()
-print(f"tokens in:  {status.tokens_in_used:,} / {status.tokens_in_limit:,}")
-print(f"tokens out: {status.tokens_out_used:,} / {status.tokens_out_limit:,}")
-```
-
-Or visit [Dashboard → Usage](https://app.getmetacognition.com/dashboard/usage) for the same numbers in graph form.
-
-## What just happened
-
-<Steps>
-  <Step title="Token exchange">
-    The SDK swapped your API key for a short-lived JWT. You never see it; refresh is automatic. [Read more](/authentication).
-  </Step>
-  <Step title="Active write">
-    Your two turns landed in active memory in ~150ms — recallable immediately.
-  </Step>
-  <Step title="Passive enrichment">
-    In the background, observations like "user avoids shellfish" are being extracted and indexed. Your next `recall(...)` will see them.
-  </Step>
-  <Step title="Recall">
-    Vector search + reranking + temporal scoring → top hits with calibrated confidence.
-  </Step>
-</Steps>
-
-## Next steps
+## Next
 
 <CardGroup cols={2}>
-  <Card title="The memory model" icon="brain" href="/concepts/memory-model">
-    What turns, observations, and entities are — and when each fires.
+  <Card title="Memory model" icon="brain" href="/concepts/memory-model">
+    What's stored and how.
   </Card>
   <Card title="Scopes" icon="layer-group" href="/concepts/scopes">
-    Org / user / session — multi-tenant in two lines.
+    Multi-user partitioning.
   </Card>
   <Card title="FastAPI recipe" icon="server" href="/recipes/fastapi">
-    Drop-in chatbot backend with Tex memory.
+    Production chatbot in 40 lines.
   </Card>
-  <Card title="Error handling" icon="triangle-exclamation" href="/sdk/errors">
-    Every exception class and what to do.
+  <Card title="Errors" icon="triangle-exclamation" href="/sdk/errors">
+    Every exception, every retry rule.
   </Card>
 </CardGroup>
