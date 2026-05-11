@@ -19,6 +19,16 @@
       "to": "#FF8C66"
     }
   },
+  "font": {
+    "headings": {
+      "family": "Geist",
+      "weight": 600
+    },
+    "body": {
+      "family": "Geist",
+      "weight": 400
+    }
+  },
   "topbarLinks": [
     {
       "name": "Dashboard",
