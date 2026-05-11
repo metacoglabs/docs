@@ -66,6 +66,12 @@
       ]
     },
     {
+      "group": "Benchmarks",
+      "pages": [
+        "benchmarks"
+      ]
+    },
+    {
       "group": "Guides",
       "pages": [
         "concepts/memory-model",

@@ -1,0 +1,190 @@
+---
+title: "Benchmarks"
+description: "#1 on LoCoMo (93.3%) and LongMemEval_S (92.2%) — the two industry-standard long-term memory benchmarks."
+---
+
+Tex is the state of the art on long-term conversational memory. Below are the full results from the two benchmarks the field uses to compare systems: **LoCoMo** (EMNLP 2024) and **LongMemEval** (ICLR 2025).
+
+<CardGroup cols={2}>
+  <Card title="LoCoMo · 93.3%" icon="trophy">
+    Full system. Previous SOTA: **EverMemOS at 92.3%**.
+  </Card>
+  <Card title="LongMemEval_S · 92.2%" icon="trophy">
+    Active-only. Previous SOTA among retrieval systems: **Emergence AI at 86.0%**.
+  </Card>
+</CardGroup>
+
+<Note>
+  Both numbers are reported with **gpt-4o-mini** as the reader and **gpt-4o** as the LLM-as-judge. Single-machine deployment; no distributed infrastructure. Methodology and reproducibility notes below.
+</Note>
+
+## LoCoMo
+
+LoCoMo evaluates long-conversation memory across 10 multi-session conversations with **1,984 questions** spanning 5 categories: single-hop retrieval, multi-hop reasoning, temporal reasoning, open-domain inference, and adversarial abstention.
+
+### Per-category results
+
+| Category | **Tex Full** | Tex Active | MemMachine v0.2 | Hindsight (Gemini-3) |
+| --- | --- | --- | --- | --- |
+| Single-Hop | **96.08%** | 88.23% | 94.41% | 86.17% |
+| Multi-Hop | **92.14%** | 78.21% | 89.72% | 70.83% |
+| Temporal | **91.90%** | 87.23% | 89.10% | 83.80% |
+| Open-Domain | 94.79% | 67.71% | 75.00% | **95.12%** |
+| Adversarial | **99.33%** | 97.31% | — | — |
+| **Overall** | **93.3%** | 87.7% | 91.69% | 89.6% |
+
+### Competitive landscape
+
+```text LoCoMo Overall Accuracy
+Tex (Full System)   █████████████████████████████████████████████ 93.3%
+EverMemOS           ████████████████████████████████████████████  92.3%
+MemMachine v0.2     ███████████████████████████████████████████   91.7%
+Hindsight           █████████████████████████████████████████     89.6%
+Tex (Active Only)   ████████████████████████████████████████      87.7%
+Zep                 ████████████████████████████████              ~85%
+Letta / MemGPT      ██████████████████████████████████            ~83%
+Supermemory         █████████████████████████████                 ~70%
+Mem0                ██████████████████████████                    ~66%
+```
+
+<Tip>
+  Tex's **99.33% on adversarial questions** is the strongest signal: the system correctly *refuses* to answer unanswerable questions rather than hallucinating. Most competitors don't disclose this category.
+</Tip>
+
+## LongMemEval_S
+
+LongMemEval_S evaluates memory over **500 questions across ~48 sessions each (~115K tokens)**, testing information extraction, multi-session reasoning, temporal reasoning, knowledge updates, and abstention.
+
+### Per-ability results
+
+| Ability | **Tex Active** | Mastra OM (gpt-4o) | Emergence AI | Supermemory | Oracle GPT-4o | Zep |
+| --- | --- | --- | --- | --- | --- | --- |
+| Abstention | **100%** | — | — | — | — | — |
+| Knowledge Updates | **95.8%** | 85.9% | 83.3% | 88.5% | 85.9% | 83.3% |
+| Info Extraction | 93.3% | 82.1% | **100%** | 97.1% | **100%** | 92.9% |
+| Temporal | **91.3%** | 85.7% | 85.7% | 76.7% | 76.7% | 62.4% |
+| Multi-Session | **87.6%** | 79.7% | 81.2% | 71.4% | 80.5% | 57.9% |
+| **Overall** | **92.2%** | 84.2% | 86.0% | 81.6% | 82.4% | 71.2% |
+
+### Competitive landscape
+
+```text LongMemEval_S — Retrieval Systems
+Tex (Active Only)       ████████████████████████████████████████████ 92.2%
+Emergence AI (Internal) ███████████████████████████████████████      86.0%
+Mastra OM (gpt-4o)      ██████████████████████████████████████       84.2%
+Emergence AI (Simple)   ██████████████████████████████████████       82.4%
+Supermemory             ████████████████████████████████████         81.6%
+Emergence AI (Fast)     ███████████████████████████████████          79.0%
+Zep                     ██████████████████████████████               71.2%
+Full Context GPT-4o     ████████████████████████████                 63.8%
+Naive RAG               ██████████████████████                       52.0%
+```
+
+```text Oracle Baselines (given evidence sessions directly — no retrieval)
+Oracle GPT-o3           ████████████████████████████████████████████ 92.0%
+Oracle Accumulator      ████████████████████████████████████████     88.6%
+Oracle GPT-4o           ██████████████████████████████████████       82.4%
+```
+
+<Tip>
+  Tex's **92.2% matches Oracle GPT-o3 (92.0%)** and beats Oracle GPT-4o (82.4%) — meaning Tex's retrieval surfaces relevant context more effectively than oracle-selected sessions for many question types.
+</Tip>
+
+## Latency
+
+| Configuration | p50 | p90 | End-to-end (incl. reader) |
+| --- | --- | --- | --- |
+| **Tex (Active)** | **~120ms** | ~200ms | ~0.6s |
+| **Tex (Full System)** | ~350ms | ~500ms | ~1.0s |
+
+### Versus competitors
+
+| System | Retrieval latency |
+| --- | --- |
+| **Tex (Active)** | **~120ms** |
+| **Tex (Full System)** | ~350ms |
+| Supermemory | ~300ms |
+| Emergence AI | ~3.6s |
+| Zep | ~5.65s |
+
+## Token efficiency
+
+### Per-question breakdown (Tex)
+
+| Component | Tokens |
+| --- | --- |
+| System prompt | ~138 |
+| User template | ~28 |
+| Retrieved context (avg 24 fragments × 44 tokens) | ~1,047 |
+| Question | ~20 |
+| **Total input per question** | **~1,233** |
+| Output (answer) | ~30 |
+
+### LLM tokens consumed on LoCoMo (1,984 questions)
+
+| System | Ingestion LLM | Reader | Total | Accuracy |
+| --- | --- | --- | --- | --- |
+| **Tex** | **0** | **2.4M** | **2.4M** | **93.3%** |
+| MemMachine Memory | not disclosed | 4.2M | 4.2M+ | 87.5% |
+| MemMachine Agent | not disclosed | 8.6M | 8.6M+ | 91.7% |
+| Mem0 | not disclosed | 19.2M | 19.2M+ | ~66% |
+
+```text Tokens per Correct Answer (lower is better)
+Mem0                ████████████████████████████████████████████ ~14,650+
+MemMachine (Agent)  ██████████████                               ~4,720+
+MemMachine (Memory) ███████                                      ~2,420+
+Tex (Full System)   ██████                                       ~1,296
+```
+
+<Tip>
+  **Tex uses zero LLM tokens during ingestion.** All embedding and indexing runs on offline models — no provider call per turn. Competitors typically run an LLM pass on every ingested message; those costs aren't always disclosed but are real.
+</Tip>
+
+### Headline efficiency claims
+
+- **27% more accurate than Mem0** with **87% fewer tokens** and **~95% lower latency**.
+- **5.8% more accurate than MemMachine Memory mode** with **43% fewer tokens**.
+- **Lowest tokens-per-correct-answer on the board** at ~1,296.
+
+## Ablation — what each capability contributes
+
+On LongMemEval_S, peeling layers off the production retrieval pipeline:
+
+| Capability | What it does | Δ accuracy |
+| --- | --- | --- |
+| Adaptive retrieval | Adjusts retrieval depth + strategy per query type | +3.6% |
+| Query understanding | LLM-free semantic expansion | +1.9% |
+| Multi-stage relevance scoring | Progressive filter + rerank | +2.4% |
+| Structured reasoning | Enumerate / count across fragments | +3.1% |
+| Temporal awareness | Resolve relative dates, build chronology | +3.0% |
+| Combined pipeline | Everything working together | +1.6% |
+| | **Base → Full System** | **76.6% → 92.2%** |
+
+## Methodology
+
+- **Reader model**: `gpt-4o-mini`
+- **Judge model**: `gpt-4o`
+- **Evaluation**: LLM-as-judge, category-specific judge prompts, binary yes/no, averaged per category
+- **LoCoMo**: 10 conversations, 1,984 QA pairs, Tex Full System
+- **LongMemEval_S**: 500 questions, ~48 sessions each, Tex Active Only
+- **Infrastructure**: Single machine. No distributed cluster. Complete eval runs end-to-end without manual intervention.
+
+## What's next
+
+- **MemoryAgentBench (ICLR 2026)** — next eval target; tests accurate retrieval, test-time learning, long-range understanding, conflict resolution.
+- **Multi-step reasoning** — two-pass retrieval + reasoning for complex counting / computation.
+- **LongMemEval_M** — scaling to 500+ sessions per question for extreme long-memory evaluation.
+
+## References
+
+1. Maharana et al. *LoCoMo: Long-Context Conversations for Evaluating Conversational Memory.* EMNLP 2024.
+2. Wu et al. *LongMemEval: Benchmarking Chat Assistants on Long-Term Interactive Memory.* ICLR 2025.
+3. Hu et al. *Evaluating Memory in LLM Agents via Incremental Multi-Turn Interactions.* ICLR 2026.
+4. MemMachine. *MemMachine v0.2 Delivers Top Scores on LoCoMo.* Dec 2025.
+5. Emergence AI. *SOTA on LongMemEval with RAG.* 2025.
+6. Supermemory. *State-of-the-Art Agent Memory Research.* 2026.
+7. Mastra. *Observational Memory: 95% on LongMemEval.* 2026.
+
+<Card title="Try it yourself" icon="play" href="/quickstart" horizontal>
+  Five minutes from `pip install` to first recall.
+</Card>
