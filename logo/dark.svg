@@ -1,0 +1,5 @@
+<svg width="76" height="28" viewBox="0 0 76 28" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Tex">
+  <rect x="0" y="0" width="28" height="28" rx="7" fill="#FF6B3E"/>
+  <text x="14" y="19.5" font-family="ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Inter, sans-serif" font-weight="800" font-size="13" fill="#FFFFFF" text-anchor="middle" letter-spacing="-0.5">tx</text>
+  <text x="36" y="20" font-family="ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Inter, sans-serif" font-weight="600" font-size="18" fill="#FFFFFF" letter-spacing="-0.4">Tex</text>
+</svg>

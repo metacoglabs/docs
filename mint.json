@@ -5,18 +5,18 @@
     "dark": "/logo/dark.svg",
     "light": "/logo/light.svg"
   },
-  "favicon": "/favicon.png",
+  "favicon": "/favicon.svg",
   "colors": {
-    "primary": "#0F172A",
-    "light": "#64748B",
-    "dark": "#0F172A",
+    "primary": "#FF6B3E",
+    "light": "#FF8C66",
+    "dark": "#E0552F",
     "background": {
       "light": "#FFFFFF",
-      "dark": "#020617"
+      "dark": "#0A0A0A"
     },
     "anchors": {
-      "from": "#0F172A",
-      "to": "#475569"
+      "from": "#FF6B3E",
+      "to": "#FF8C66"
     }
   },
   "topbarLinks": [
