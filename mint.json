@@ -7,22 +7,22 @@
   },
   "favicon": "/favicon.png",
   "colors": {
-    "primary": "#0EA5E9",
-    "light": "#38BDF8",
-    "dark": "#0369A1",
+    "primary": "#0F172A",
+    "light": "#64748B",
+    "dark": "#0F172A",
+    "background": {
+      "light": "#FFFFFF",
+      "dark": "#020617"
+    },
     "anchors": {
-      "from": "#0EA5E9",
-      "to": "#7C3AED"
+      "from": "#0F172A",
+      "to": "#475569"
     }
   },
   "topbarLinks": [
     {
       "name": "Dashboard",
       "url": "https://app.getmetacognition.com"
-    },
-    {
-      "name": "Support",
-      "url": "mailto:support@getmetacognition.com"
     }
   ],
   "topbarCtaButton": {
@@ -36,7 +36,7 @@
       "url": "sdk"
     },
     {
-      "name": "REST API",
+      "name": "API Reference",
       "icon": "code",
       "url": "api-reference"
     },
@@ -56,11 +56,11 @@
       ]
     },
     {
-      "group": "Concepts",
+      "group": "Guides",
       "pages": [
         "concepts/memory-model",
-        "concepts/scopes",
         "concepts/retrieval",
+        "concepts/scopes",
         "concepts/usage-billing"
       ]
     },
@@ -76,7 +76,7 @@
       ]
     },
     {
-      "group": "REST API",
+      "group": "API Reference",
       "pages": [
         "api-reference/overview",
         {
@@ -111,7 +111,7 @@
       ]
     },
     {
-      "group": "Recipes",
+      "group": "Cookbook",
       "pages": [
         "recipes/fastapi",
         "recipes/langchain",
@@ -122,7 +122,7 @@
       ]
     },
     {
-      "group": "Migration",
+      "group": "Migrate",
       "pages": [
         "migration/from-redis",
         "migration/from-langchain-memory",
@@ -130,7 +130,7 @@
       ]
     },
     {
-      "group": "Reference",
+      "group": "Help",
       "pages": [
         "troubleshooting",
         "changelog"
