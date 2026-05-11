@@ -3,6 +3,23 @@ title: "Benchmarks"
 description: "#1 on LoCoMo (93.3%) and LongMemEval_S (92.2%) — the two industry-standard long-term memory benchmarks."
 ---
 
+export const Bar = ({label, pct, value, win}) => (
+  <div style={{display: "flex", alignItems: "center", gap: "10px", margin: "6px 0", fontSize: "13px", lineHeight: 1.4}}>
+    <span style={{minWidth: "180px", maxWidth: "180px", fontWeight: win ? 600 : 400, opacity: win ? 1 : 0.78}}>{label}</span>
+    <div style={{flex: 1, height: "16px", background: "rgba(127,127,127,0.14)", borderRadius: "3px", overflow: "hidden"}}>
+      <div style={{width: `${Math.min(100, pct)}%`, height: "100%", background: win ? "#FF6B3E" : "rgba(127,127,127,0.55)", borderRadius: "3px"}}></div>
+    </div>
+    <span style={{minWidth: "60px", textAlign: "right", fontWeight: win ? 600 : 400, opacity: win ? 1 : 0.78, fontVariantNumeric: "tabular-nums"}}>{value}</span>
+  </div>
+);
+
+export const Chart = ({title, children}) => (
+  <div style={{margin: "20px 0", padding: "18px 18px 14px", border: "1px solid rgba(127,127,127,0.18)", borderRadius: "10px"}}>
+    <div style={{fontSize: "12px", opacity: 0.6, marginBottom: "10px", textTransform: "uppercase", letterSpacing: "0.05em", fontWeight: 600}}>{title}</div>
+    {children}
+  </div>
+);
+
 Tex is the state of the art on long-term conversational memory. Below are the full results from the two benchmarks the field uses to compare systems: **LoCoMo** (EMNLP 2024) and **LongMemEval** (ICLR 2025).
 
 <CardGroup cols={2}>
@@ -35,17 +52,17 @@ LoCoMo evaluates long-conversation memory across 10 multi-session conversations 
 
 ### Competitive landscape
 
-```text LoCoMo Overall Accuracy
-Tex (Full System)   █████████████████████████████████████████████ 93.3%
-EverMemOS           ████████████████████████████████████████████  92.3%
-MemMachine v0.2     ███████████████████████████████████████████   91.7%
-Hindsight           █████████████████████████████████████████     89.6%
-Tex (Active Only)   ████████████████████████████████████████      87.7%
-Zep                 ████████████████████████████████              ~85%
-Letta / MemGPT      ██████████████████████████████████            ~83%
-Supermemory         █████████████████████████████                 ~70%
-Mem0                ██████████████████████████                    ~66%
-```
+<Chart title="LoCoMo · Overall Accuracy">
+  <Bar label="Tex (Full System)" pct={93.3} value="93.3%" win />
+  <Bar label="EverMemOS"         pct={92.3} value="92.3%" />
+  <Bar label="MemMachine v0.2"   pct={91.7} value="91.7%" />
+  <Bar label="Hindsight"         pct={89.6} value="89.6%" />
+  <Bar label="Tex (Active Only)" pct={87.7} value="87.7%" win />
+  <Bar label="Zep"               pct={85}   value="~85%" />
+  <Bar label="Letta / MemGPT"    pct={83}   value="~83%" />
+  <Bar label="Supermemory"       pct={70}   value="~70%" />
+  <Bar label="Mem0"              pct={66}   value="~66%" />
+</Chart>
 
 <Tip>
   Tex's **99.33% on adversarial questions** is the strongest signal: the system correctly *refuses* to answer unanswerable questions rather than hallucinating. Most competitors don't disclose this category.
@@ -68,23 +85,23 @@ LongMemEval_S evaluates memory over **500 questions across ~48 sessions each (~1
 
 ### Competitive landscape
 
-```text LongMemEval_S — Retrieval Systems
-Tex (Active Only)       ████████████████████████████████████████████ 92.2%
-Emergence AI (Internal) ███████████████████████████████████████      86.0%
-Mastra OM (gpt-4o)      ██████████████████████████████████████       84.2%
-Emergence AI (Simple)   ██████████████████████████████████████       82.4%
-Supermemory             ████████████████████████████████████         81.6%
-Emergence AI (Fast)     ███████████████████████████████████          79.0%
-Zep                     ██████████████████████████████               71.2%
-Full Context GPT-4o     ████████████████████████████                 63.8%
-Naive RAG               ██████████████████████                       52.0%
-```
+<Chart title="LongMemEval_S · Retrieval Systems">
+  <Bar label="Tex (Active Only)"       pct={92.2} value="92.2%" win />
+  <Bar label="Emergence AI (Internal)" pct={86.0} value="86.0%" />
+  <Bar label="Mastra OM (gpt-4o)"      pct={84.2} value="84.2%" />
+  <Bar label="Emergence AI (Simple)"   pct={82.4} value="82.4%" />
+  <Bar label="Supermemory"             pct={81.6} value="81.6%" />
+  <Bar label="Emergence AI (Fast)"     pct={79.0} value="79.0%" />
+  <Bar label="Zep"                     pct={71.2} value="71.2%" />
+  <Bar label="Full Context GPT-4o"     pct={63.8} value="63.8%" />
+  <Bar label="Naive RAG"               pct={52.0} value="52.0%" />
+</Chart>
 
-```text Oracle Baselines (given evidence sessions directly — no retrieval)
-Oracle GPT-o3           ████████████████████████████████████████████ 92.0%
-Oracle Accumulator      ████████████████████████████████████████     88.6%
-Oracle GPT-4o           ██████████████████████████████████████       82.4%
-```
+<Chart title="Oracle baselines · given evidence sessions directly, no retrieval">
+  <Bar label="Oracle GPT-o3"       pct={92.0} value="92.0%" />
+  <Bar label="Oracle Accumulator"  pct={88.6} value="88.6%" />
+  <Bar label="Oracle GPT-4o"       pct={82.4} value="82.4%" />
+</Chart>
 
 <Tip>
   Tex's **92.2% matches Oracle GPT-o3 (92.0%)** and beats Oracle GPT-4o (82.4%) — meaning Tex's retrieval surfaces relevant context more effectively than oracle-selected sessions for many question types.
@@ -97,15 +114,13 @@ Oracle GPT-4o           ██████████████████�
 | **Tex (Active)** | **~120ms** | ~200ms | ~0.6s |
 | **Tex (Full System)** | ~350ms | ~500ms | ~1.0s |
 
-### Versus competitors
-
-| System | Retrieval latency |
-| --- | --- |
-| **Tex (Active)** | **~120ms** |
-| **Tex (Full System)** | ~350ms |
-| Supermemory | ~300ms |
-| Emergence AI | ~3.6s |
-| Zep | ~5.65s |
+<Chart title="Retrieval latency vs competitors · lower is better">
+  <Bar label="Tex (Active Only)"     pct={2.1}  value="120ms"  win />
+  <Bar label="Tex (Full System)"     pct={6.2}  value="350ms"  win />
+  <Bar label="Supermemory"           pct={5.3}  value="300ms" />
+  <Bar label="Emergence AI"          pct={63.7} value="3.6s" />
+  <Bar label="Zep"                   pct={100}  value="5.65s" />
+</Chart>
 
 ## Token efficiency
 
@@ -129,12 +144,12 @@ Oracle GPT-4o           ██████████████████�
 | MemMachine Agent | not disclosed | 8.6M | 8.6M+ | 91.7% |
 | Mem0 | not disclosed | 19.2M | 19.2M+ | ~66% |
 
-```text Tokens per Correct Answer (lower is better)
-Mem0                ████████████████████████████████████████████ ~14,650+
-MemMachine (Agent)  ██████████████                               ~4,720+
-MemMachine (Memory) ███████                                      ~2,420+
-Tex (Full System)   ██████                                       ~1,296
-```
+<Chart title="Tokens per correct answer · lower is better">
+  <Bar label="Mem0"                pct={100}  value="~14,650+" />
+  <Bar label="MemMachine (Agent)"  pct={32.2} value="~4,720+" />
+  <Bar label="MemMachine (Memory)" pct={16.5} value="~2,420+" />
+  <Bar label="Tex (Full System)"   pct={8.8}  value="~1,296"   win />
+</Chart>
 
 <Tip>
   **Tex uses zero LLM tokens during ingestion.** All embedding and indexing runs on offline models — no provider call per turn. Competitors typically run an LLM pass on every ingested message; those costs aren't always disclosed but are real.
