@@ -7,7 +7,7 @@ export const Bar = ({label, pct, value, win}) => (
   <div style={{display: "flex", alignItems: "center", gap: "10px", margin: "6px 0", fontSize: "13px", lineHeight: 1.4}}>
     <span style={{minWidth: "180px", maxWidth: "180px", fontWeight: win ? 600 : 400, opacity: win ? 1 : 0.78}}>{label}</span>
     <div style={{flex: 1, height: "16px", background: "rgba(127,127,127,0.14)", borderRadius: "3px", overflow: "hidden"}}>
-      <div style={{width: `${Math.min(100, pct)}%`, height: "100%", background: win ? "#FF6B3E" : "rgba(127,127,127,0.55)", borderRadius: "3px"}}></div>
+      <div style={{width: `${Math.min(100, pct)}%`, height: "100%", background: win ? "#F32C05" : "rgba(127,127,127,0.55)", borderRadius: "3px"}}></div>
     </div>
     <span style={{minWidth: "60px", textAlign: "right", fontWeight: win ? 600 : 400, opacity: win ? 1 : 0.78, fontVariantNumeric: "tabular-nums"}}>{value}</span>
   </div>
