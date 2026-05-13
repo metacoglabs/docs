@@ -1,40 +1,43 @@
 ---
-title: "Multi-user memory"
-description: "Org / user / session — how Tex partitions memory."
+title: "Scopes and multi-tenancy"
+description: "How org_id, user_id, and session_id partition memory so your customers never leak into each other."
+icon: "layer-group"
 ---
 
-Every turn and every recall is keyed by `(org_id, user_id, session_id)`.
+Every call keys off **`(org_id, user_id, session_id)`**. `org_id` comes from your API key. **`session_id` is yours**—that’s where you put thread / channel / tenant.
 
-| Field | Set by | Required |
+| Field | Source | You set it? |
 | --- | --- | --- |
-| `org_id` | The JWT (your API key) — server-injected | ✓ |
-| `user_id` | The JWT, or override per-call for sub-user scoping | ✓ |
-| `session_id` | **You, per call.** | ✓ |
+| `org_id` | JWT minted from your API key | Almost never |
+| `user_id` | JWT (or per-call override when supported) | Sometimes |
+| `session_id` | Your application | **Always** |
 
-`org_id` is locked to your API key. You almost never set it manually. `session_id` is where you do the work.
+`session_id` is the knob you touch daily.
 
-## Picking a `session_id`
+## `session_id`
 
-Free-form string. Reuse, don't enumerate.
+Pick a stable pattern:
 
 <CardGroup cols={2}>
-  <Card title="One conversation" icon="message">
+  <Card title="Single chat thread" icon="message">
     `chat-{conversation_uuid}`
   </Card>
   <Card title="Slack channel" icon="hashtag">
     `slack-{channel_id}`
   </Card>
-  <Card title="Per-task agent" icon="robot">
+  <Card title="Agent run" icon="robot">
     `agent-{task_id}`
   </Card>
-  <Card title="Lifetime memory" icon="infinity">
+  <Card title="Long-lived user profile" icon="infinity">
     `bio-{user_id}`
   </Card>
 </CardGroup>
 
-## Multi-user SaaS
+Keep strings deterministic for the same logical thread so `recall` sees the same corpus every time.
 
-Each end-user gets their own memory. **Encode the end-user into the `session_id`** with one shared client:
+## SaaS (one key)
+
+Map each customer to a distinct **`session_id`** (and optionally `user_id` when you use overrides). One shared `Tex` client is enough:
 
 ```python
 tex = Tex(api_key=os.environ["TEX_API_KEY"], base_url=BASE_URL)
@@ -45,12 +48,12 @@ def chat(user_msg: str, x_user_id: str, conv_id: str):
     ...
 ```
 
-One API key, one bill, one client, full isolation between end-users.
+That gives you **one bill** and **hard separation** between tenants—as long as you never reuse someone else’s `session_id` by accident.
 
 <Note>
-  Per-call `user_id` scoping is on the SDK roadmap (1.2). Until then, encoding into `session_id` is the cleanest pattern. See the [multi-tenant SaaS recipe](/recipes/multi-tenant-saas).
+  Fine-grained per-call `user_id` overrides are planned for **SDK 1.2**. Until then, encoding the end user into `session_id` is the cleanest pattern. See the [multi-tenant SaaS recipe](/recipes/multi-tenant-saas).
 </Note>
 
-<Card title="Next: recall and ranking" icon="magnifying-glass" href="/concepts/retrieval" horizontal>
-  Active vs deep, top_k, confidence.
+<Card title="Recall & ranking" icon="magnifying-glass" href="/concepts/retrieval" horizontal>
+  `top_k`, modes, confidence.
 </Card>

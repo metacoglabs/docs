@@ -1,6 +1,7 @@
 ---
-title: "Benchmarks"
-description: "#1 on LoCoMo (93.3%) and LongMemEval_S (92.2%) — the two industry-standard long-term memory benchmarks."
+title: "Benchmarks & methodology"
+description: "LoCoMo and LongMemEval_S scores, per-category tables, latency, and token efficiency—so you can verify claims yourself."
+icon: "trophy"
 ---
 
 export const Bar = ({label, pct, value, win}) => (
@@ -20,20 +21,20 @@ export const Chart = ({title, children}) => (
   </div>
 );
 
-Tex is the state of the art on long-term conversational memory. Below are the full results from the two benchmarks the field uses to compare systems: **LoCoMo** (EMNLP 2024) and **LongMemEval** (ICLR 2025).
+On **LoCoMo**, the full Tex stack scores **93.3%** overall. On **LongMemEval_S** (active retrieval only), Tex is at **92.2%**. The sections that follow break out categories, latency, and tokens in plain view so you can reproduce the story yourself.
 
 <CardGroup cols={2}>
   <Card title="LoCoMo · 93.3%" icon="trophy">
-    Full system. Previous SOTA: **EverMemOS at 92.3%**.
+    Full Tex system vs published baselines—EverMemOS was the prior headline number at **92.3%**.
   </Card>
   <Card title="LongMemEval_S · 92.2%" icon="trophy">
-    Active-only. Previous SOTA among retrieval systems: **Emergence AI at 86.0%**.
+    Active retrieval track vs other retrieval-first systems—Emergence AI posted **86.0%** on comparable reporting.
   </Card>
 </CardGroup>
 
-<Note>
-  Both numbers are reported with **gpt-4o-mini** as the reader and **gpt-4o** as the LLM-as-judge. Single-machine deployment; no distributed infrastructure. Methodology and reproducibility notes below.
-</Note>
+<Info>
+  We generated answers with **gpt-4o-mini** and graded them with **gpt-4o** in an LLM-as-judge configuration. Each evaluation ran on a **single** machine from start to finish (no multi-node setup). The precise recipe is in **Methodology** below.
+</Info>
 
 ## LoCoMo
 
@@ -65,7 +66,7 @@ LoCoMo evaluates long-conversation memory across 10 multi-session conversations 
 </Chart>
 
 <Tip>
-  Tex's **99.33% on adversarial questions** is the strongest signal: the system correctly *refuses* to answer unanswerable questions rather than hallucinating. Most competitors don't disclose this category.
+  On adversarial items Tex is **99.33%**: it declines to answer when the transcript does not support one. If a vendor’s public write-up skips that bucket, treat their headline number with the skepticism it deserves.
 </Tip>
 
 ## LongMemEval_S
@@ -97,19 +98,19 @@ LongMemEval_S evaluates memory over **500 questions across ~48 sessions each (~1
   <Bar label="Naive RAG"               pct={52.0} value="52.0%" />
 </Chart>
 
-<Chart title="Oracle baselines · given evidence sessions directly, no retrieval">
+<Chart title="Oracle baselines (evidence provided up front — no retrieval)">
   <Bar label="Oracle GPT-o3"       pct={92.0} value="92.0%" />
   <Bar label="Oracle Accumulator"  pct={88.6} value="88.6%" />
   <Bar label="Oracle GPT-4o"       pct={82.4} value="82.4%" />
 </Chart>
 
 <Tip>
-  Tex's **92.2% matches Oracle GPT-o3 (92.0%)** and beats Oracle GPT-4o (82.4%) — meaning Tex's retrieval surfaces relevant context more effectively than oracle-selected sessions for many question types.
+  **92.2%** sits next to Oracle GPT-o3 (**92.0%**) and well above Oracle GPT-4o (**82.4%**). In practice that means the retrieval step is surfacing roughly the same evidence you would hand-pick for each question—without you doing the hand-picking.
 </Tip>
 
 ## Latency
 
-| Configuration | p50 | p90 | End-to-end (incl. reader) |
+| Configuration | p50 | p90 | End-to-end (including the model that reads context) |
 | --- | --- | --- | --- |
 | **Tex (Active)** | **~120ms** | ~200ms | ~0.6s |
 | **Tex (Full System)** | ~350ms | ~500ms | ~1.0s |
@@ -152,16 +153,14 @@ LongMemEval_S evaluates memory over **500 questions across ~48 sessions each (~1
 </Chart>
 
 <Tip>
-  **Tex uses zero LLM tokens during ingestion.** All embedding and indexing runs on offline models — no provider call per turn. Competitors typically run an LLM pass on every ingested message; those costs aren't always disclosed but are real.
+  Ingest here costs **zero LLM tokens**—offline embeds only. Vendors that run an LLM per message will show up in your bill; ask them before you commit.
 </Tip>
 
 ### Headline efficiency claims
 
-- **27% more accurate than Mem0** with **87% fewer tokens** and **~95% lower latency**.
-- **5.8% more accurate than MemMachine Memory mode** with **43% fewer tokens**.
-- **Lowest tokens-per-correct-answer on the board** at ~1,296.
+Compared with published Mem0 numbers, Tex lands about **27%** higher on accuracy while using roughly **87%** fewer tokens and running at about **95%** lower latency. Against MemMachine’s memory-only configuration it is about **5.8%** more accurate on **43%** fewer tokens. On LoCoMo the stack also posts the lowest tokens-per-correct-answer we have recorded here — about **1,296** — because ingestion never spends LLM cycles on every message.
 
-## Ablation — what each capability contributes
+## Ablation: what each part of the pipeline adds
 
 On LongMemEval_S, peeling layers off the production retrieval pipeline:
 
@@ -177,18 +176,15 @@ On LongMemEval_S, peeling layers off the production retrieval pipeline:
 
 ## Methodology
 
-- **Reader model**: `gpt-4o-mini`
-- **Judge model**: `gpt-4o`
-- **Evaluation**: LLM-as-judge, category-specific judge prompts, binary yes/no, averaged per category
-- **LoCoMo**: 10 conversations, 1,984 QA pairs, Tex Full System
-- **LongMemEval_S**: 500 questions, ~48 sessions each, Tex Active Only
-- **Infrastructure**: Single machine. No distributed cluster. Complete eval runs end-to-end without manual intervention.
+Answers came from **`gpt-4o-mini`**. We graded them with an LLM-as-judge setup built on **`gpt-4o`**, using category-specific prompts, binary pass/fail per item, and a straight average inside each category.
 
-## What's next
+**LoCoMo** used all ten provided conversations (**1,984** question–answer pairs) against the **full Tex system** (not retrieval-only). **LongMemEval_S** used **500** questions with about **48** sessions each (~115K tokens per trace) against **Tex Active** retrieval only.
 
-- **MemoryAgentBench (ICLR 2026)** — next eval target; tests accurate retrieval, test-time learning, long-range understanding, conflict resolution.
-- **Multi-step reasoning** — two-pass retrieval + reasoning for complex counting / computation.
-- **LongMemEval_M** — scaling to 500+ sessions per question for extreme long-memory evaluation.
+Hardware was a **single** machine for the full pipeline—no multi-node orchestration—and runs completed without someone babysitting intermediate steps.
+
+## On our roadmap for evals
+
+We plan to add **MemoryAgentBench (ICLR 2026)** (retrieval quality, learning on the fly, long context, conflicting facts), stronger **multi-step reasoning** when answers need counting or arithmetic over evidence, and **LongMemEval_M** for the nasty case of hundreds of sessions behind one question.
 
 ## References
 
@@ -200,6 +196,6 @@ On LongMemEval_S, peeling layers off the production retrieval pipeline:
 6. Supermemory. *State-of-the-Art Agent Memory Research.* 2026.
 7. Mastra. *Observational Memory: 95% on LongMemEval.* 2026.
 
-<Card title="Try it yourself" icon="play" href="/quickstart" horizontal>
-  Five minutes from `pip install` to first recall.
+<Card title="Run the quickstart" icon="play" href="/quickstart" horizontal>
+  You go from `pip install tex-sdk` to a printed recall in one sitting.
 </Card>

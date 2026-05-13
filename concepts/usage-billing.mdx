@@ -1,9 +1,10 @@
 ---
-title: "Usage and billing"
-description: "Tokens in, tokens out, daily quotas."
+title: "Usage, quotas, and billing"
+description: "What we meter (tokens in/out), how daily caps work, and how to reason about cost as you scale."
+icon: "receipt"
 ---
 
-The billable unit is **tokens** — `tokens_in` (everything you sent us) and `tokens_out` (everything we returned). Counted with `tiktoken cl100k_base`, same encoding as `text-embedding-3-large`.
+We bill on **`tokens_in`** plus **`tokens_out`**, counted with **`tiktoken`** using the **`cl100k_base`** vocabulary. The free tier allows **1M** tokens in and **5M** out per UTC day; exceeding either side returns **`429`**. Every response includes a **`usage`** object, and **`tex.usage.today()`** / **`.summary()`** give you org-level rollups.
 
 ## Free tier
 
@@ -16,48 +17,52 @@ The billable unit is **tokens** — `tokens_in` (everything you sent us) and `to
   </Card>
 </CardGroup>
 
-Reset 00:00 UTC. Both caps trigger `429 RateLimitError`.
+Both reset at **00:00 UTC**. Crossing either limit raises **`RateLimitError`** (`HTTP 429`).
 
-## Reading usage
+## Usage in code
 
-Every `remember` and `recall` response carries its own usage:
+### Per response
+
+Every `remember` and `recall` returns usage for that call:
 
 ```python
 hits = tex.recall(q="...", session_id=sid)
 print(hits.usage.tokens_in, hits.usage.tokens_out)
 ```
 
-For org-wide totals:
+### Per org (dashboards, cron jobs)
 
 ```python
-today = tex.usage.today()         # daily + active quota
+today = tex.usage.today()         # daily totals + quota headroom
 month = tex.usage.summary()       # current calendar month
 march = tex.usage.summary("2026-03")
 ```
 
-Or visit the [Dashboard → Usage](https://app.getmetacognition.com/dashboard/usage) for graph form.
+The [Dashboard → Usage](https://app.getmetacognition.com/dashboard/usage) page shows the same numbers graphically.
 
-## Cost control
+## Cost knobs
 
-- **Cap `top_k`** — defaults 15/25. Cut to 5–8 for live chat.
-- **Use `mode="active"`** — faster *and* cheaper than `deep`.
-- **Pre-filter writes** — strip system messages and "ok" / "thanks" turns.
-- **Batch `remember`** — pass dozens of turns in one call instead of looping.
-- **Quota-aware routing** — gate non-essential paths when usage > 90%.
+| lever | why it helps |
+| --- | --- |
+| **Lower `top_k`** | Defaults are 15 / 25; live chat often needs only 5–8. |
+| **Stay on `active`** | `deep` mode costs more time and tokens than `active`. |
+| **Trim noisy writes** | Skip one-word acks and redundant system spam in `remember`. |
+| **Batch turns** | Send many turns in one `remember` instead of dozens of calls. |
+| **Quota-aware routing** | Fall back to “no memory” for non-critical paths when you are near the cap. |
 
 ```python
 if tex.usage.today().tokens_in_used / 1_000_000 > 0.9:
     return generate_without_memory(query)
 ```
 
-## Alerts
+## Alerting
 
-Today, alerting is opt-in: poll `tex.usage.today()` from your own monitoring (every 5 min) and page on `> 0.9` of either cap. Server-side email alerts at 80% are on the [roadmap](/changelog).
+There is no hosted email alert yet. Poll **`tex.usage.today()`** every few minutes from your own monitor and page when either usage column crosses **~90%** of quota. Server-side emails near **80%** are on the [roadmap](/changelog).
 
-## After launch
+## Pricing (later)
 
-Pay-as-you-go. Pricing TBA. The daily caps stay as soft alerts — we'll email you, not 429 you.
+Billing will be pay-as-you-go once pricing is published. Daily caps remain safety rails—we intend to **notify** you as you approach limits rather than surprise-**429** production, but treat today’s behavior as authoritative until the billing docs update.
 
-<Card title="Next: install the SDK" icon="download" href="/sdk/installation" horizontal>
-  Set up the Python client.
+<Card title="Install SDK" icon="download" href="/sdk/installation" horizontal>
+  `pip install tex-sdk`
 </Card>

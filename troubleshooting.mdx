@@ -1,42 +1,70 @@
 ---
 title: "Troubleshooting"
-description: "Common symptoms, root causes, and fixes."
+description: "Symptoms, likely causes, fixes, and what we need in a support email when you are stuck."
+icon: "wrench"
 ---
 
-## Symptom → cause → fix
+<Note>
+  Scan the **symptom table** first and match the log line or exception you are seeing. Open the accordions below when you need more narrative around a fix.
+</Note>
+
+## Match your symptom
 
 | Symptom | Likely cause | Fix |
 | --- | --- | --- |
-| `AuthenticationError: Invalid API key` on first call | Wrong key, key revoked, or wrong `base_url` | Re-mint at the [dashboard](https://app.getmetacognition.com); verify `TEX_BASE_URL` |
-| `BadRequestError: 'scope' field required` | You're calling REST directly without the SDK | Use the SDK; it builds `scope` for you. Or include `scope: {org_id, session_id}` in the body. |
-| `recall` returns 0 hits | New session, or memory hasn't finished passive enrichment yet | Wait 1–2s after `remember`; query a broader `q`; switch to `mode="deep"` |
-| `recall.confidence` always low | Your `q` doesn't match anything stored | Re-phrase; switch to `mode="deep"`; raise `top_k` |
-| `RateLimitError` mid-day | Hit the daily quota | Wait until 00:00 UTC, reduce `top_k`, pre-filter writes |
-| Slow `recall` (> 5s) | Likely `mode="deep"` or cold cache | Use `mode="active"`; warm-start the client |
-| `httpx.RemoteProtocolError` / HTTP/2 issues | Egress proxy strips h2 | `Tex(http2=False)` |
-| Long `remember` blocks the user | You're awaiting it on the request path | Push to a background worker — see [FastAPI recipe](/recipes/fastapi#production-tweaks) |
-| Tests are flaky against Tex | You're hitting the real cluster from CI | Use a dedicated CI org and a daily-cleanup script |
-| `last_used_at` on the dashboard isn't updating | Caching / stale UI | Hard refresh; the field updates within seconds of a real call |
+| `AuthenticationError: Invalid API key` on first call | Wrong key, revoked key, or wrong `base_url` | Mint a fresh key in the [dashboard](https://app.getmetacognition.com); confirm `TEX_BASE_URL` matches the environment you think you are hitting |
+| `BadRequestError: 'scope' field required` | Raw REST call without the scaffolding the SDK adds | Use the SDK, or include `scope: {org_id, session_id}` yourself in the JSON body |
+| `recall` returns zero hits | Brand-new session, enrichment still catching up, or query mismatch | Wait a second after `remember`; broaden `q`; try `mode="deep"` once to see if signal appears |
+| `recall.confidence` looks stuck low | Query does not overlap stored content | Rephrase closer to the stored wording; raise `top_k`; try `mode="deep"` |
+| `RateLimitError` mid-day | Org exhausted daily quota | Wait for **00:00 UTC**, lower `top_k`, or trim noisy writes—see [Usage and billing](/concepts/usage-billing) |
+| Slow `recall` (> 5s) | `mode="deep"` or cold caches | Default to `mode="active"` in user-facing paths; warm the client on deploy |
+| `httpx.RemoteProtocolError` / HTTP/2 noise | Middlebox stripped HTTP/2 | Instantiate with `Tex(http2=False)` |
+| Long `remember` blocks UX | You await ingestion on the hot request path | Push persistence to a worker—pattern in the [FastAPI recipe](/recipes/fastapi#production-tweaks) |
+| Flaky CI against prod | Shared org contention or dirty sessions | Give CI its own org and sweep data on a schedule |
+| Dashboard `last_used_at` looks stale | Browser cache | Hard refresh; the field updates within seconds of real traffic |
+
+## Extra
+
+<AccordionGroup>
+  <Accordion title="Auth still failing after you rotated keys" icon="key">
+    SDK clients cache JWTs until expiry. After you deploy a new `TEX_API_KEY`, restart workers or recreate the client so they stop presenting tokens minted from the old secret. Confirm you did not typo `https://api.getmetacognition.com` in staging configs.
+  </Accordion>
+
+  <Accordion title="You see hits but they feel unrelated" icon="magnifying-glass">
+    Recall ranks by relevance, not chronological order—set `include_timeline=True` when you need strict time order for the model. If overlap is still weak, your `session_id` might not match the one you wrote with—re-read [Scopes and multi-tenancy](/concepts/scopes).
+  </Accordion>
+
+  <Accordion title="Confidence swings between identical queries" icon="chart-line">
+    Small jitter can come from rerank tie-breaks keyed by hashes. If spread exceeds ~0.1, capture `request_id` and file a ticket—something else is going on.
+  </Accordion>
+</AccordionGroup>
 
 ## Filing a ticket
 
-Include:
+<Steps>
+  <Step title="Collect the request id">
+    Copy `e.request_id` from any SDK exception—UUID-shaped, safe to share.
+  </Step>
+  <Step title="Note the timestamp">
+    Give us the approximate UTC time the call failed.
+  </Step>
+  <Step title="Describe the call">
+    Include the method (`recall`, `remember`, …), `session_id`, and whether you hit REST or the SDK.
+  </Step>
+  <Step title="Add version + redact secrets">
+    Run `python -c "import tex; print(tex.__version__)"`. Scrub API keys or PII before you press send.
+  </Step>
+</Steps>
 
-1. The full `e.request_id` from the exception (a UUID).
-2. The approximate timestamp (UTC).
-3. The verb you called (`recall`, `remember`, …) and the `session_id`.
-4. The SDK version (`tex.__version__`).
-5. Anything sensitive — *redact before sharing.*
+You can email `support@getmetacognition.com` or open an issue on [GitHub](https://github.com/metacoglabs).
 
-Email `support@getmetacognition.com` or open an issue on [GitHub](https://github.com/metacoglabs).
-
-## Diagnostics — quick checks
+## Copy-paste diagnostics
 
 ```python
 # 1. Auth works?
-tex.usage.today()         # if this raises AuthenticationError, your key is bad
+tex.usage.today()         # AuthenticationError here means your key or host is wrong
 
-# 2. Round-trip works?
+# 2. Round-trip latency?
 import time
 t0 = time.perf_counter()
 tex.recall(q="ping", session_id="diag")
@@ -46,8 +74,8 @@ print(f"recall RTT: {(time.perf_counter()-t0)*1000:.0f}ms")
 import tex; print(tex.__version__)
 ```
 
-## Common-but-not-bugs
+## Things that look like bugs but are not
 
-- **Turns out of order?** Recall ranks by relevance, not chronology. For chronological order, set `include_timeline=True`.
-- **Confidence varies between identical queries?** Some randomness is intrinsic (rerank ties broken by hash). Variation > 0.1 suggests an actual issue — file a ticket.
-- **`session_id` mismatch returns nothing.** By design — sessions are isolated. See [scopes](/concepts/scopes) for cross-session patterns.
+- **Hits sorted funny:** relevance ordering is intentional—use timeline mode when you need chronology.
+- **Empty cross-session recall:** sessions are isolated until you design a scope strategy—see [Scopes and multi-tenancy](/concepts/scopes).
+- **Identical queries, tiny score deltas:** expect minor movement; large swings merit a ticket.

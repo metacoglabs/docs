@@ -1,6 +1,6 @@
 ---
-title: "From LangChain"
-description: "Migrate from BaseChatMemory subclasses to Tex retrieval."
+title: "Migrate from LangChain chat memory"
+description: "Move off BaseChatMemory-style buffers to Tex-backed recall with a short mapping guide."
 ---
 
 LangChain's built-in memory classes (`ConversationBufferMemory`, `ConversationBufferWindowMemory`, `ConversationSummaryMemory`, `ConversationKGMemory`) are **buffers, summarizers, or graphs** that live inside your process. Tex is a **hosted retrieval service.**
@@ -63,22 +63,15 @@ The migration moves you from "give the LLM the whole sliding window" to "give th
   </Tab>
 </Tabs>
 
-## What you give up
+## Tradeoffs
 
-LangChain's memory classes are simple in-process objects with no network call. Tex adds:
+In-process LangChain memory = zero network. Tex = network + ~150ms writes, multi-second reads.
 
-- Network round-trip (~150ms `remember`, ~1.7s `recall`) — your request gets slower.
-- A dependency on our service availability.
+**Down:** slower request, depends on our API.
 
-What you gain:
+**Up:** survives deploys, bounded prompts, cross-session memory, confidence, extracted facts.
 
-- Memory survives restarts, deploys, and shard moves.
-- Bounded prompt size — never hit the context limit.
-- Cross-session continuity — same user across days/weeks/months.
-- Confidence scoring — gate fallback paths.
-- Observation extraction — structured "facts" without writing prompts.
-
-For a hobby project, LangChain's buffer is fine. For anything user-facing in production, Tex's tradeoff is right.
+Hobby bot: buffer is fine. Customer-facing: Tex is usually worth it.
 
 ## Drop-in adapter (optional)
 

@@ -1,55 +1,64 @@
 ---
-title: "Install"
-description: "Install tex-sdk and verify the install."
+title: "Install the SDK"
+description: "Python 3.9+, pip or uv or poetry, verify the import, pin a version range in requirements."
+icon: "download"
 ---
 
 ## Requirements
 
 - Python ≥ 3.9
-- `pip`, `uv`, or `poetry`
+- `pip`, `uv`, or `poetry`—pick whichever you already standardize on
 
 ## Install
 
-```bash
+<CodeGroup>
+```bash pip
 pip install tex-sdk
 ```
 
-Or `uv add tex-sdk` / `poetry add tex-sdk`.
+```bash uv
+uv add tex-sdk
+```
+
+```bash poetry
+poetry add tex-sdk
+```
+</CodeGroup>
 
 <Note>
-  PyPI distribution is `tex-sdk`. Import name is `tex`:
+  PyPI lists the package as **`tex-sdk`**. You **`import tex`** in Python:
 
   ```python
   from tex import Tex
   ```
 </Note>
 
-## Verify
+## Check version
 
 ```bash
 python -c "import tex; print(tex.__version__)"
 # 1.1.0
 ```
 
-## Pin a version
+## Pin versions
 
 ```text requirements.txt
 tex-sdk>=1.1.0,<2
 ```
 
-For PEP 621 `pyproject.toml`, add `"tex-sdk>=1.1.0,<2"` under `[project].dependencies`. For Poetry, `tex-sdk = "^1.1.0"` under `[tool.poetry.dependencies]`.
+For PEP 621 `pyproject.toml`, add `"tex-sdk>=1.1.0,<2"` under `[project].dependencies`. For Poetry, use `tex-sdk = "^1.1.0"` under `[tool.poetry.dependencies]` so minor releases flow in without a major bump surprising you.
 
-## Optional extras
+## HTTP/2 and grumpy proxies
 
-The SDK pulls in `httpx[http2]` automatically, which gives you HTTP/2 multiplexing. If your egress proxy strips HTTP/2, disable it:
+The SDK depends on `httpx[http2]` for multiplexing. If your corporate proxy strips HTTP/2, disable it when you construct the client:
 
 ```python
 tex = Tex(api_key=..., http2=False)
 ```
 
-## Type hints
+## Types
 
-The SDK ships type stubs (`py.typed`). Mypy and Pyright pick them up automatically — no `types-` package needed.
+Stubs ship with the package (`py.typed`). Mypy and Pyright pick them up automatically—you do not need a separate `types-` stub distribution.
 
 ```python
 from tex import Tex, RecallResponse
@@ -60,5 +69,5 @@ reveal_type(hits.confidence)   # float
 ```
 
 <Card title="Next: configure the client" icon="gears" href="/sdk/client">
-  Constructor options, environment variables, lifecycle.
+  Environment variables, timeouts, and lifecycle hooks.
 </Card>

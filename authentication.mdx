@@ -1,38 +1,78 @@
 ---
-title: "Authentication"
-description: "How API keys, JWTs, and the refresh loop work."
+title: "Authentication & API keys"
+description: "How your API key becomes a JWT, how the SDK refreshes it, and where to store secrets in dev and prod."
+icon: "key"
 ---
 
-You hold an **API key.** The SDK exchanges it for a short-lived **JWT** the first time it's needed and refreshes transparently. You never see the JWT.
+import { AuthSequence } from "/snippets/flow-visuals.mdx";
 
-## The auth flow
+<Info>
+  If you only need a working client, start with the [Quickstart](/quickstart). Return here when you are wiring secrets, bringing your own JWT, or planning key rotation.
+</Info>
+
+Your API key is exchanged for short-lived access and refresh tokens the first time the SDK hits a real product route. After that the client keeps JWTs in memory (or your hooks), refreshes them before they expire, and you rarely handle raw token strings yourself.
+
+## Flow
+
+The numbered list below matches this sequence—your app calls the SDK; the SDK talks to the API (including exchange, refresh, and retries).
 
 ```mermaid
 sequenceDiagram
-    participant App as Your app
-    participant SDK as Tex SDK
-    participant API as Tex API
+  autonumber
+  participant App as Your app
+  participant SDK as Tex SDK
+  participant API as Tex API
 
-    App->>SDK: Tex(api_key="tex_live_…")
-    Note over SDK: Lazy — no call yet
-    App->>SDK: tex.recall(...)
-    SDK->>API: POST /auth/token-exchange
-    API-->>SDK: access_token (24h) + refresh_token (7d)
-    SDK->>API: POST /recall (Authorization: Bearer access_token)
-    API-->>SDK: hits
+  App->>SDK: Tex(api_key=...)
+  note over SDK: Lazy — no network until a real method runs
+  App->>SDK: tex.recall(...) / remember / usage
+  SDK->>API: POST /auth/token-exchange
+  API-->>SDK: access_token (24h) + refresh_token (7d)
+  SDK->>API: Product call (Authorization: Bearer access_token)
+  API-->>SDK: 200 + payload
+  SDK-->>App: return value
 
-    Note over SDK: 24h later, on next call:
-    SDK->>API: POST /recall (expired)
-    API-->>SDK: 401
-    SDK->>API: POST /auth/refresh
-    API-->>SDK: new access_token
-    SDK->>API: POST /recall (retry)
-    API-->>SDK: hits
+  note over App,API: Later: access token expired
+  App->>SDK: tex.recall(...)
+  SDK->>API: Product call (expired Bearer)
+  API-->>SDK: 401
+  SDK->>API: POST /auth/refresh
+  API-->>SDK: new access_token
+  SDK->>API: Retry product call
+  API-->>SDK: 200 + payload
+  SDK-->>App: return value
 ```
 
-## What you provide
+### Steps in the SDK
 
-The constructor accepts any **one** of three auth modes:
+<AuthSequence
+  phases={[
+    {
+      id: "construct",
+      title: "You build the client",
+      detail: "Tex(api_key=…) — lazy, zero bytes on the wire until you call a real method.",
+    },
+    {
+      id: "first",
+      title: "You call recall/remember/usage",
+      detail: "SDK POSTs /auth/token-exchange, receives access (≈24h) + refresh (≈7d) JWTs.",
+    },
+    {
+      id: "steady",
+      title: "SDK attaches Bearer access token",
+      detail: "Your business call runs (for example POST /recall) with Authorization: Bearer ….",
+    },
+    {
+      id: "refresh",
+      title: "When access expires",
+      detail: "Next call may 401; SDK POSTs /auth/refresh, retries once with the new access token — you still await a single method call.",
+    },
+  ]}
+/>
+
+## Auth mode
+
+Use **one** of these:
 
 <Tabs>
   <Tab title="API key (recommended)">
@@ -76,7 +116,7 @@ The constructor accepts any **one** of three auth modes:
   </Tab>
 </Tabs>
 
-## Where to keep the key
+## Key storage
 
 <CardGroup cols={2}>
   <Card title="Local dev" icon="laptop">
@@ -95,7 +135,7 @@ The constructor accepts any **one** of three auth modes:
 
 The SDK reads `TEX_API_KEY` from the environment automatically when `api_key=` is omitted.
 
-## Rotating keys without downtime
+## Rotation
 
 <Steps>
   <Step title="Mint key B">
@@ -112,7 +152,7 @@ The SDK reads `TEX_API_KEY` from the environment automatically when `api_key=` i
   </Step>
 </Steps>
 
-## What happens on a bad key
+## Bad key
 
 <CodeGroup>
 ```python Python

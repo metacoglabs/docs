@@ -1,9 +1,24 @@
 ---
-title: "Overview"
-description: "Use Tex directly over HTTPS — for languages and runtimes the SDK doesn't cover yet."
+title: "REST API overview"
+description: "Base URL, JWT auth, correlation IDs, error bodies, rate limits, retries—everything before you open the endpoint list."
+icon: "globe"
 ---
 
-The Tex API is a small REST surface. If you're writing Python, prefer the [SDK](/sdk/installation) — it handles auth, refresh, and serialization. Use the raw API when you're in a language we don't ship a client for, or when you're building a sidecar.
+<Info>
+  If you are in Python, prefer the [SDK](/sdk/installation) so JWT refresh stays handled for you. Stay on this page for curl, other languages, or when you are debugging raw HTTP.
+</Info>
+
+## Quick reference
+
+| Topic | Where |
+| --- | --- |
+| Live host | `https://api.getmetacognition.com` |
+| Auth header | `Authorization: Bearer <access_token>` |
+| Get tokens | [`POST /auth/token-exchange`](/api-reference/auth/token-exchange) |
+| Trace failures | `X-Correlation-ID` + JSON `request_id` |
+| Limits & metering | [Usage, quotas, and billing](/concepts/usage-billing) |
+
+Small surface: **`/me`**, **`/ingestion/memory`**, **`/recall`**, **`/usage/*`**.
 
 ## Base URL
 
@@ -13,13 +28,13 @@ https://api.getmetacognition.com
 
 ## Auth
 
-Every Tex-unique endpoint expects:
+Every product endpoint expects:
 
 ```http
 Authorization: Bearer <access_token>
 ```
 
-Where `<access_token>` is a JWT obtained by exchanging your API key. See [`POST /auth/token-exchange`](/api-reference/auth/token-exchange).
+You mint `<access_token>` by posting your API key to [`POST /auth/token-exchange`](/api-reference/auth/token-exchange). After that you treat it like any short-lived bearer token.
 
 ## Content type
 
@@ -29,17 +44,15 @@ Always:
 Content-Type: application/json
 ```
 
-## Correlation ID
+## Correlation IDs
 
-Every request gets an `X-Correlation-ID` (UUID) generated on the server if you don't supply one. The SDK generates one client-side. Pass it through your own logs to trace requests end-to-end:
+Each request should carry (or receive) an `X-Correlation-ID` UUID. The server mints one if you skip it; the SDK always sends its own so your service logs and ours match. Paste that value into support threads.
 
 ```http
 X-Correlation-ID: 4f1d8e3c-2a9b-4c0d-9e6f-1a2b3c4d5e6f
 ```
 
-Quote this header in support tickets.
-
-## Errors
+## HTTP errors
 
 Standard HTTP status codes:
 
@@ -55,7 +68,7 @@ Standard HTTP status codes:
 | `404` | Not found |
 | `422` | Validation error (FastAPI shape) |
 | `429` | Daily quota exceeded |
-| `5xx` | Our problem |
+| `5xx` | Tex platform fault—retry with backoff, then escalate with the correlation ID |
 
 Error body shape:
 
@@ -71,20 +84,17 @@ Error body shape:
 
 ## Rate limits
 
-Daily quota is enforced per-org. Currently:
-
-- `tokens_in`: 1,000,000 / day
-- `tokens_out`: 5,000,000 / day
-
-Reset 00:00 UTC. See [Usage and billing](/concepts/usage-billing).
+<Info>
+  Limits are per organization. Today the free tier allows **1,000,000** `tokens_in` and **5,000,000** `tokens_out` each UTC day, resetting at **00:00 UTC**. See [Usage, quotas, and billing](/concepts/usage-billing) for how that shows up in responses and dashboards.
+</Info>
 
 ## Retries
 
-Recommended client-side policy: 2 retries with exponential backoff on `408`, `500`, `502`, `503`, `504`, and network errors. Honor the `Retry-After` header.
+You should retry **twice** with exponential backoff on `408`, `500`, `502`, `503`, `504`, and hard network failures. Respect `Retry-After` when the API sends it.
 
-Don't retry `400`, `401`, `403`, `404`, `422`, `429` — they're terminal.
+Skip retries for `400`, `401`, `403`, `404`, `422`, and `429`—those will not magically clear on a replay.
 
-## Endpoint index
+## Endpoints
 
 <CardGroup cols={2}>
   <Card title="Auth" icon="key" href="/api-reference/auth/signup">

@@ -1,8 +1,11 @@
 ---
-title: "Refresh token"
-description: "Mint a new access token using a refresh token."
+title: "Refresh access token"
+description: "Rotate access tokens using a valid refresh token; the SDK calls this after a 401."
 api: "POST https://api.getmetacognition.com/auth/refresh"
+icon: "arrows-rotate"
 ---
+
+import { TokenRetryVisual } from "../../snippets/flow-visuals.mdx";
 
 Use this when an `access_token` has expired but the `refresh_token` is still valid. The SDK does this automatically on 401.
 
@@ -60,13 +63,8 @@ tokens = resp.json()
 
 If the refresh token is itself expired (>7d old) or revoked (the underlying API key was revoked), `/auth/refresh` returns `401`. Fall back to `/auth/token-exchange` with the original API key — or, if the API key is also gone, surface a re-login flow.
 
-```mermaid
-flowchart TD
-    A[401 on a normal call] --> B[Try POST /auth/refresh]
-    B -->|200| C[Retry original call]
-    B -->|401| D[Try POST /auth/token-exchange]
-    D -->|200| C
-    D -->|401| E[Surface AuthenticationError to user]
-```
+### After 401
 
-The Python SDK runs this entire flow internally on a single 401 response — you only see `AuthenticationError` if the whole chain fails.
+<TokenRetryVisual />
+
+Without the SDK, implement the same sequence in your HTTP client. With the SDK you usually only surface `AuthenticationError` if refresh **and** exchange both fail.

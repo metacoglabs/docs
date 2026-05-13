@@ -1,42 +1,57 @@
 ---
 title: "Recall and ranking"
-description: "Active vs deep, top_k tuning, confidence gating."
+description: "Active vs deep recall, tuning top_k, and when to trust—or ignore—the confidence score."
+icon: "magnifying-glass"
 ---
 
-`tex.recall(q, session_id, ...)` is your read path.
+Stick with **`mode="active"`** for anything a person is staring at; switch to **`deep`** when you can spend more time or when **`active`** keeps coming back thin. **`top_k`** is your dial for context size—tight in chat, generous in digests—and it feeds straight into **`tokens_out`**. When **`confidence`** stays under about **0.3**, plan on skipping memory for that turn, widening the query, or trying **`deep`** once.
+
+Python: `tex.recall(q, session_id, ...)`. HTTP: [recall](/api-reference/memory/recall).
 
 ## Modes
 
+### `active` (default)
+
+- **Best for:** Chat, copilots, anything with a person waiting.
+- **Rough latency:** about **1.5–2.5 s** end-to-end in typical setups.
+- **Behavior:** Single-pass retrieval and ranking.
+
+### `deep`
+
+- **Best for:** Offline jobs, “why did we decide X?” investigations, or a second pass after weak `active` results.
+- **Rough latency:** about **3–6 s**.
+- **Behavior:** Two-pass with heavier reranking.
+
 <CardGroup cols={2}>
-  <Card title="active (default)" icon="bolt">
-    Single-pass. **1.5–2.5s.** Use for every interactive call.
+  <Card title="active" icon="bolt">
+    Default. Fast path for interactive products.
   </Card>
   <Card title="deep" icon="diagram-project">
-    Two-pass with iterative rerank. **3–6s.** For periodic analysis or low-confidence retries.
+    Slower, richer retrieval when latency is acceptable.
   </Card>
 </CardGroup>
 
 ## `top_k`
 
-Defaults: **15** (active) / **25** (deep). Server caps at **30** regardless of what you send.
+Defaults: **15** (`active`) / **25** (`deep`). The server caps at **30** no matter what you send.
 
-| Use case | `top_k` |
+| Situation | Starting `top_k` |
 | --- | --- |
-| Live chat, small context | 3–5 |
-| Live chat, large context | 8–15 |
-| Summaries / digests | 20–30 |
+| Tight assistant prompt | 3–5 |
+| Standard chat with citations | 8–15 |
+| Summaries or long answers | 20–30 |
 
-Larger `top_k` = more `tokens_out` billed.
+Larger `top_k` directly increases **`tokens_out`** on your bill—see [Usage, quotas, and billing](/concepts/usage-billing).
 
 ## Confidence
 
-Every recall returns a `confidence ∈ [0, 1]`, calibrated so `P(hits relevant | c) ≈ c`.
+Every recall returns **`confidence` in [0, 1]**, calibrated so that roughly **`P(relevant hits | confidence) ≈ confidence`**.
 
-| Range | Meaning | Action |
+| Range | How to read it | Practical move |
 | --- | --- | --- |
-| ≥ 0.6 | Strong | Use as-is |
-| 0.3 – 0.6 | Useful but uncertain | Use, cite the sources |
-| < 0.3 | Weak | Try `mode="deep"`, or skip memory |
+| **≥ 0.6** | Strong | Pass context to the model as-is. |
+| **0.3 – 0.6** | Mixed | Use hits, but cite or summarize sources for the user. |
+| **< 0.3** | Weak | Try `mode="deep"`, rephrase `q`, or skip memory for this turn. |
 
 ```python
 hits = tex.recall(q=q, session_id=sid)
@@ -44,25 +59,27 @@ if hits.confidence < 0.3:
     hits = tex.recall(q=q, session_id=sid, mode="deep")
 ```
 
-## What's in a hit
+## Hit fields
 
 ```python
 RecallHit(id, text, score, kind, timestamp)        # turns + observations
 RecallEntity(id, label, score)                     # entities
 ```
 
-`hits.hits.turns` is what you stuff into a system prompt. `hits.hits.observations` are atomic facts. `hits.hits.entities` are linked things — useful for analytical queries.
+- **`hits.hits.turns`** — usual choice for stuffing a system prompt.
+- **`hits.hits.observations`** — atomic facts.
+- **`hits.hits.entities`** — useful for analytical or “who / what / where” questions.
 
-## Timeline
+## Timeline string
 
 ```python
 hits = tex.recall(q="when did we discuss pricing?",
                   session_id=sid, include_timeline=True)
-print(hits.timeline)   # a pre-rendered chronological summary string
+print(hits.timeline)   # optional pre-rendered string
 ```
 
-`timeline` is an `Optional[str]` — drop it into a prompt as-is. It's not iterable.
+`timeline` is an **`Optional[str]`**: either drop it straight into a prompt or ignore it. It is not a list you iterate.
 
-<Card title="Next: usage and billing" icon="receipt" href="/concepts/usage-billing" horizontal>
-  Tokens in / out and quota.
+<Card title="Next: usage, quotas, and billing" icon="receipt" href="/concepts/usage-billing" horizontal>
+  How recall choices affect `tokens_in` / `tokens_out`.
 </Card>

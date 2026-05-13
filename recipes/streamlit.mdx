@@ -1,20 +1,142 @@
 ---
-title: "Chat UI (Streamlit)"
-description: "A chat UI with persistent memory in 50 lines."
+title: "Streamlit chat UI"
+description: "You build one Streamlit page that recalls from Tex, streams GPT output, and shows which memories fired."
+icon: "desktop"
 ---
 
-A single-page Streamlit chat that uses Tex for memory across page reloads, browser refreshes, and even cleared sessions.
+You get a **browser-friendly demo** that survives reruns because Tex—not `st.session_state`—owns long-term memory. You still keep lightweight UI state only for what Streamlit redraw needs.
 
-## Install
+<Steps>
+  <Step title="Install packages">
+    ```bash
+    pip install tex-sdk streamlit openai
+    ```
+  </Step>
 
-```bash
-pip install tex-sdk streamlit openai
-```
+  <Step title="Bootstrap clients once">
+    You wrap `Tex` and `OpenAI` in `@st.cache_resource` so Streamlit does not recreate TLS pools every interaction:
 
-## Code
+    ```python
+    import os
+    import streamlit as st
+    from openai import OpenAI
+    from tex import Tex
+
+    st.set_page_config(page_title="Tex chat", page_icon="🧠")
+
+    @st.cache_resource
+    def get_clients():
+        tex = Tex(
+            api_key=os.environ["TEX_API_KEY"],
+            base_url=os.environ.get("TEX_BASE_URL", "https://api.getmetacognition.com"),
+        )
+        gpt = OpenAI()
+        return tex, gpt
+
+    tex, gpt = get_clients()
+    ```
+  </Step>
+
+  <Step title="Pin a session id per browser tab">
+    You store a stable `sid` in session state; optionally you read `?uid=` from the query string so QA can fork personas quickly:
+
+    ```python
+    if "sid" not in st.session_state:
+        st.session_state.sid = f"web-{st.query_params.get('uid', 'anon')}-default"
+    sid = st.session_state.sid
+
+    if "messages" not in st.session_state:
+        st.session_state.messages = []
+    ```
+  </Step>
+
+  <Step title="Show usage in the sidebar">
+    You call `tex.usage.today()` for a quick quota sanity check during demos:
+
+    ```python
+    with st.sidebar:
+        st.write("## Usage today")
+        today = tex.usage.today()
+        pct_in  = min(1.0, today.tokens_in_used  / max(1, today.tokens_in_limit))
+        pct_out = min(1.0, today.tokens_out_used / max(1, today.tokens_out_limit))
+        st.progress(pct_in,  f"in:  {today.tokens_in_used:,} / {today.tokens_in_limit:,}")
+        st.progress(pct_out, f"out: {today.tokens_out_used:,} / {today.tokens_out_limit:,}")
+        st.caption(f"session: `{sid}`")
+    ```
+  </Step>
+
+  <Step title="Render chat + handle input">
+    You paint historic bubbles from `st.session_state.messages`, then watch `st.chat_input`:
+
+    ```python
+    for m in st.session_state.messages:
+        with st.chat_message(m["role"]):
+            st.write(m["text"])
+
+    if prompt := st.chat_input("Talk to me…"):
+        import datetime
+        now = datetime.datetime.now(datetime.timezone.utc).isoformat().replace("+00:00", "Z")
+
+        with st.chat_message("user"):
+            st.write(prompt)
+
+        with st.chat_message("assistant"):
+            with st.spinner("Recalling…"):
+                hits = tex.recall(q=prompt, session_id=sid, top_k=5)
+
+            if hits.hits.turns:
+                st.caption(f"confidence {hits.confidence:.2f}")
+                with st.expander("Memory used"):
+                    for h in hits.hits.turns:
+                        st.write(f"`{h.score:.2f}` — {h.text}")
+
+            memory_block = "\n".join(f"- {h.text}" for h in hits.hits.turns)
+            sys_prompt = f"You are a thoughtful assistant. Memory:\n{memory_block}"
+
+            chat = gpt.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[
+                    {"role": "system", "content": sys_prompt},
+                    {"role": "user",   "content": prompt},
+                ],
+                stream=True,
+            )
+            answer = st.write_stream(
+                chunk.choices[0].delta.content or "" for chunk in chat
+            )
+
+        tex.conversations.remember(
+            session_id=sid,
+            turns=[
+                {"role": "user", "text": prompt, "timestamp": now},
+                {"role": "assistant", "text": answer, "timestamp": now},
+            ],
+        )
+        st.session_state.messages += [
+            {"role": "user", "text": prompt},
+            {"role": "assistant", "text": answer},
+        ]
+    ```
+  </Step>
+
+  <Step title="Run the app">
+    ```bash
+    export TEX_API_KEY=tex_live_...
+    export OPENAI_API_KEY=sk-...
+    streamlit run app.py
+    ```
+
+    You open `http://localhost:8501/?uid=alice` and `?uid=bob` in two tabs to prove isolation.
+  </Step>
+</Steps>
+
+## One file
+
+If you want one block to paste, use this full `app.py` (same logic as the steps above):
 
 ```python app.py
-import os, datetime
+import os
+import datetime
 import streamlit as st
 from openai import OpenAI
 from tex import Tex
@@ -27,21 +149,18 @@ def get_clients():
         api_key=os.environ["TEX_API_KEY"],
         base_url=os.environ.get("TEX_BASE_URL", "https://api.getmetacognition.com"),
     )
-    gpt = OpenAI()  # or AzureOpenAI(...)
+    gpt = OpenAI()
     return tex, gpt
 
 tex, gpt = get_clients()
 
-# Stable session for the browser tab — survives reloads
 if "sid" not in st.session_state:
     st.session_state.sid = f"web-{st.query_params.get('uid', 'anon')}-default"
 sid = st.session_state.sid
 
-# Chat history we display this page render only — Tex is the source of truth
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
-# Sidebar: usage + memory stats
 with st.sidebar:
     st.write("## Usage today")
     today = tex.usage.today()
@@ -51,25 +170,22 @@ with st.sidebar:
     st.progress(pct_out, f"out: {today.tokens_out_used:,} / {today.tokens_out_limit:,}")
     st.caption(f"session: `{sid}`")
 
-# Render chat
 for m in st.session_state.messages:
     with st.chat_message(m["role"]):
         st.write(m["text"])
 
-# Input
 if prompt := st.chat_input("Talk to me…"):
-    now = datetime.datetime.utcnow().isoformat() + "Z"
+    now = datetime.datetime.now(datetime.timezone.utc).isoformat().replace("+00:00", "Z")
 
     with st.chat_message("user"):
         st.write(prompt)
 
     with st.chat_message("assistant"):
-        # Recall
         with st.spinner("Recalling…"):
             hits = tex.recall(q=prompt, session_id=sid, top_k=5)
 
         if hits.hits.turns:
-            st.caption(f"📚 confidence {hits.confidence:.2f}")
+            st.caption(f"confidence {hits.confidence:.2f}")
             with st.expander("Memory used"):
                 for h in hits.hits.turns:
                     st.write(f"`{h.score:.2f}` — {h.text}")
@@ -77,7 +193,6 @@ if prompt := st.chat_input("Talk to me…"):
         memory_block = "\n".join(f"- {h.text}" for h in hits.hits.turns)
         sys_prompt = f"You are a thoughtful assistant. Memory:\n{memory_block}"
 
-        # Generate
         chat = gpt.chat.completions.create(
             model="gpt-4o-mini",
             messages=[
@@ -88,29 +203,21 @@ if prompt := st.chat_input("Talk to me…"):
         )
         answer = st.write_stream(chunk.choices[0].delta.content or "" for chunk in chat)
 
-    # Persist + update local state
-    tex.conversations.remember(session_id=sid, turns=[
-        {"role":"user","text": prompt, "timestamp": now},
-        {"role":"assistant","text": answer, "timestamp": now},
-    ])
+    tex.conversations.remember(
+        session_id=sid,
+        turns=[
+            {"role": "user", "text": prompt, "timestamp": now},
+            {"role": "assistant", "text": answer, "timestamp": now},
+        ],
+    )
     st.session_state.messages += [
-        {"role":"user","text": prompt},
-        {"role":"assistant","text": answer},
+        {"role": "user", "text": prompt},
+        {"role": "assistant", "text": answer},
     ]
 ```
 
-## Run
+## Why bother
 
-```bash
-export TEX_API_KEY=tex_live_...
-export OPENAI_API_KEY=sk-...
-streamlit run app.py
-```
-
-Open with `?uid=alice` in the URL to scope memory to "alice" — `?uid=bob` gets a separate memory pool.
-
-## Why this works
-
-- **Refresh-proof** — Streamlit's session state dies on refresh; Tex doesn't.
-- **No glue code** — no Postgres / Redis layer for chat history.
-- **Built-in debug panel** — the expander shows exactly which memory items the model saw.
+- **You survive refreshes** — Streamlit session dies; Tex does not.
+- **You skip Redis/Postgres** for early demos.
+- **You debug recall visually** — expander shows exactly what the model saw.

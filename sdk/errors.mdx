@@ -1,6 +1,7 @@
 ---
-title: "Handle errors"
-description: "Every exception class and the SDK's automatic retry behavior."
+title: "Errors and retries"
+description: "Exception types, which status codes retry automatically, and what to log before you open a ticket."
+icon: "triangle-exclamation"
 ---
 
 All Tex exceptions inherit from `tex.TexError`. You almost always want to catch one of:
@@ -151,7 +152,7 @@ tex = Tex(api_key=..., max_retries=5)
 The `Retry-After` header is honored — if the server says wait 3 seconds, the SDK waits at least 3 (not capped at the backoff value).
 
 <Note>
-  `429` from the daily-quota path retries the same way other 429s do — but you'll still be over quota when the retry hits, so the `RateLimitError` ultimately surfaces. If that round-trip waste matters, set `max_retries=0` on quota-sensitive paths.
+  `429` on quota retries the same as other `429`s—but you are still over the cap when the retry lands, so `RateLimitError` still fires. If that waste bugs you, set `max_retries=0` on quota-sensitive paths.
 </Note>
 
 ## Idempotency

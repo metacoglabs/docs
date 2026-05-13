@@ -1,11 +1,11 @@
 ---
-title: "From Redis"
-description: "Replace your Redis-backed conversation log with Tex memory."
+title: "Migrate from Redis (or a homegrown log)"
+description: "Swap append-only chat logs for remember/recall while keeping your routing and models the same."
 ---
 
-If your chatbot stores chat history in Redis (or Postgres, or Mongo) and dumps the whole thing into every prompt, this is the migration for you.
+If your chat history lives in Redis/Postgres/Mongo and you dump it all into every prompt, this page is for you.
 
-## The pattern you're replacing
+## Before (Redis log)
 
 ```python before.py
 # Append every turn
@@ -23,7 +23,7 @@ Pain points:
 - "Last 50" is a guess. Older relevant context gets evicted.
 - Redis cost grows linearly forever.
 
-## The Tex version
+## After (Tex)
 
 ```python after.py
 hits = tex.recall(q=user_msg, session_id=sid, top_k=8)

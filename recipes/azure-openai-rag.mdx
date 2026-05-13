@@ -1,95 +1,103 @@
 ---
-title: "RAG with Azure GPT-4o"
-description: "Tex memory + GPT-4o on Azure for production RAG."
+title: "RAG on Azure OpenAI"
+description: "You pair Tex recall with Azure GPT-4o answers—same loop works for any chat-completions API if you swap the client."
+icon: "cloud"
 ---
 
-The canonical "memory + LLM" loop with Azure OpenAI. Same shape works for OpenAI direct, Anthropic, or any chat-completion API — swap the SDK.
+Recall → answer → remember. Same loop on OpenAI direct or Anthropic—swap the client.
 
-## Install
+<Steps>
+  <Step title="Install">
+    ```bash
+    pip install tex-sdk openai
+    ```
+  </Step>
 
-```bash
-pip install tex-sdk openai
-```
+  <Step title="Set environment variables">
+    ```bash
+    TEX_API_KEY=tex_live_...
+    TEX_BASE_URL=https://api.getmetacognition.com
 
-## Environment
+    AZURE_OPENAI_ENDPOINT=https://<your-resource>.openai.azure.com
+    AZURE_OPENAI_API_KEY=...
+    AZURE_OPENAI_DEPLOYMENT=gpt-4o
+    AZURE_OPENAI_API_VERSION=2025-04-01-preview
+    ```
+  </Step>
 
-```bash
-# .env
-TEX_API_KEY=tex_live_...
-TEX_BASE_URL=https://api.getmetacognition.com
+  <Step title="Construct clients">
+    ```python
+    import os
+    from openai import AzureOpenAI
+    from tex import Tex
 
-AZURE_OPENAI_ENDPOINT=https://<your-resource>.openai.azure.com
-AZURE_OPENAI_API_KEY=...
-AZURE_OPENAI_DEPLOYMENT=gpt-4o
-AZURE_OPENAI_API_VERSION=2025-04-01-preview
-```
-
-## Code
-
-```python rag.py
-import os
-from datetime import datetime, timezone
-from openai import AzureOpenAI
-from tex import Tex, RateLimitError, APITimeoutError
-
-tex = Tex(api_key=os.environ["TEX_API_KEY"], base_url=os.environ["TEX_BASE_URL"], timeout=10)
-gpt = AzureOpenAI(
-    api_key=os.environ["AZURE_OPENAI_API_KEY"],
-    api_version=os.environ["AZURE_OPENAI_API_VERSION"],
-    azure_endpoint=os.environ["AZURE_OPENAI_ENDPOINT"],
-)
-
-def now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
-
-def answer(query: str, sid: str) -> dict:
-    # 1. Recall — soft-fail
-    memory: list[str] = []
-    confidence = 0.0
-    try:
-        hits = tex.recall(q=query, session_id=sid, top_k=5)
-        memory = [h.text for h in hits.hits.turns]
-        confidence = hits.confidence
-    except (RateLimitError, APITimeoutError):
-        pass
-
-    # 2. Generate
-    sys_msg = (
-        "You are a helpful assistant. "
-        + (f"Relevant memory:\n{chr(10).join('- ' + m for m in memory)}"
-           if memory else "")
+    tex = Tex(
+        api_key=os.environ["TEX_API_KEY"],
+        base_url=os.environ["TEX_BASE_URL"],
+        timeout=10,
     )
-    chat = gpt.chat.completions.create(
-        model=os.environ["AZURE_OPENAI_DEPLOYMENT"],
-        messages=[
-            {"role": "system", "content": sys_msg},
-            {"role": "user",   "content": query},
-        ],
-        temperature=0.4,
+    gpt = AzureOpenAI(
+        api_key=os.environ["AZURE_OPENAI_API_KEY"],
+        api_version=os.environ["AZURE_OPENAI_API_VERSION"],
+        azure_endpoint=os.environ["AZURE_OPENAI_ENDPOINT"],
     )
-    reply = chat.choices[0].message.content
+    ```
+  </Step>
 
-    # 3. Remember
-    tex.conversations.remember(session_id=sid, turns=[
-        {"role":"user","text": query,  "timestamp": now_iso()},
-        {"role":"assistant","text": reply, "timestamp": now_iso()},
-    ])
+  <Step title="Implement answer(query, session_id)">
+    ```python
+    from datetime import datetime, timezone
+    from tex import RateLimitError, APITimeoutError
 
-    return {"answer": reply, "confidence": confidence, "memory_used": len(memory)}
+    def now_iso() -> str:
+        return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
-if __name__ == "__main__":
-    import json
-    print(json.dumps(answer("any food restrictions?", "demo"), indent=2))
-```
+    def answer(query: str, sid: str) -> dict:
+        memory: list[str] = []
+        confidence = 0.0
+        try:
+            hits = tex.recall(q=query, session_id=sid, top_k=5)
+            memory = [h.text for h in hits.hits.turns]
+            confidence = hits.confidence
+        except (RateLimitError, APITimeoutError):
+            pass
 
-## Run
+        sys_msg = (
+            "You are a helpful assistant. "
+            + (f"Relevant memory:\n{chr(10).join('- ' + m for m in memory)}" if memory else "")
+        )
+        chat = gpt.chat.completions.create(
+            model=os.environ["AZURE_OPENAI_DEPLOYMENT"],
+            messages=[
+                {"role": "system", "content": sys_msg},
+                {"role": "user",   "content": query},
+            ],
+            temperature=0.4,
+        )
+        reply = chat.choices[0].message.content
 
-```bash
-python rag.py
-```
+        tex.conversations.remember(
+            session_id=sid,
+            turns=[
+                {"role": "user", "text": query, "timestamp": now_iso()},
+                {"role": "assistant", "text": reply, "timestamp": now_iso()},
+            ],
+        )
+        return {"answer": reply, "confidence": confidence, "memory_used": len(memory)}
+    ```
+  </Step>
 
-## Notes
+  <Step title="Smoke-test from `__main__`">
+    ```python
+    if __name__ == "__main__":
+        import json
+        print(json.dumps(answer("any food restrictions?", "demo-session"), indent=2))
+    ```
+  </Step>
+</Steps>
 
-- **Cite sources.** Pass each hit's `id` to GPT-4o and instruct it to cite `[mem:abc]` — you can later resolve those IDs back to the turn for click-through.
-- **Confidence-gated retry.** If `confidence < 0.4`, retry with `mode="deep"`. Costs +1–4s, rescues most weak-recall cases.
-- **Streaming.** `stream=True` works as expected. Push `remember` to a background task so it doesn't delay the stream.
+## Harder stuff
+
+- **You cite sources** — pass hit ids into the prompt and ask the model to quote `[mem:<id>]` so you can deep-link later.
+- **You retry deep recall** — if `confidence < 0.4`, you call `tex.recall(..., mode="deep")` once before answering.
+- **You stream** — you set `stream=True`, and you enqueue `remember` in a background worker so the stream starts instantly.

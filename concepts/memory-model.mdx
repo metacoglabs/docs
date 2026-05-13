@@ -1,67 +1,106 @@
 ---
 title: "How memory works"
-description: "Three layers, two write phases, one query API."
+description: "Turns you write, observations and entities Tex derives—plus how fast each layer shows up in recall."
+icon: "brain"
 ---
 
-Tex stores memory in three layers, each with different latency and recall characteristics.
+import { PipelineFlow } from "../snippets/flow-visuals.mdx";
+
+Call **`remember`** when you have new turns to store; call **`recall`** when you have a question and want the best-matching slices back. Most of the time you think in **turns**, but Tex also maintains **observations** and **entities** under the hood. The hot path for a write usually settles in about **150 ms**, while heavier indexing continues afterward.
+
+Those layers have different freshness, so a single **`recall`** can blend raw lines, distilled facts, and linked entities in one payload.
+
+## Layers
 
 <CardGroup cols={3}>
   <Card title="Turns" icon="comments">
-    The raw transcript. What was said, by whom, when.
+    Raw lines: who said what, when.
   </Card>
   <Card title="Observations" icon="lightbulb">
-    Atomic facts extracted from turns. *"User avoids shellfish."*
+    Atomic facts inferred from turns (for example, dietary constraints, locations).
   </Card>
   <Card title="Entities" icon="diagram-project">
-    Recurring things — people, places, projects — linked across observations.
+    Recurring nouns—people, places, orgs—with links across observations.
   </Card>
 </CardGroup>
 
-## How writes work
+## Writes
 
-```mermaid
-flowchart LR
-    A[remember] -->|~150ms| B[Active memory]
-    B -->|returns| C[Caller]
-    A -.->|async| D[Passive enrichment]
-    D --> E[Observations + Entities + Temporal]
-```
+You call `remember`; Tex commits a **fast** slice you can query immediately, then keeps **enriching** after the response is already on its way back to you. The flow looks like this:
 
-- **Active write** is synchronous. Turns are recallable in ~150ms.
-- **Passive enrichment** runs in the background. Observations and entities surface in subsequent recalls.
+<PipelineFlow
+  caption="Write path"
+  steps={[
+    {
+      id: "remember",
+      label: "remember",
+      phase: "Request",
+      hint: "You send turns + scope.",
+    },
+    {
+      id: "active",
+      label: "Active memory",
+      phase: "~150 ms",
+      hint: "Durable slice you can recall right away.",
+    },
+    {
+      id: "return",
+      label: "Your code resumes",
+      phase: "Response",
+      hint: "HTTP/SDK returns; user can keep chatting.",
+    },
+    {
+      id: "enrich",
+      label: "Passive enrichment",
+      phase: "Async",
+      hint: "Observations · entities · timeline (no blocking).",
+    },
+  ]}
+/>
 
-You don't wait for enrichment. The active turn is enough for the next request.
+### Fast path
 
-## How reads work
+You get control back quickly. New turns are usually recallable within about **150 ms** in normal conditions.
 
-```mermaid
-flowchart LR
-    Q[Query] --> X[Expansion]
-    X --> H[Hybrid retrieval]
-    H --> R[Cross-encoder rerank]
-    R --> C[Calibrated confidence]
-    C --> O[Top-k hits]
-```
+### Background
 
-Vector search + temporal scoring + entity-graph hits, fused, reranked, then calibrated. The output: scored turns, observations, and entities — plus a confidence number.
+Observations, entities, and timeline enrichment continue after the response. They tighten recall quality on **later** queries.
 
-## What gets extracted
+You never need enrichment to finish for the **next** user message to work—the latest turn alone can be enough.
 
-Take this turn:
+## Reads
+
+You pass natural-language **`q`** (plus scope); Tex runs fused retrieval, reranking, and emits a calibrated **`confidence`** score alongside the hits. The HTTP shape lives at [recall](/api-reference/memory/recall).
+
+<PipelineFlow
+  caption="Read path"
+  steps={[
+    { id: "q", label: "Your query", phase: "Input", hint: "Natural language + scope." },
+    { id: "expand", label: "Expansion", phase: "Retrieval", hint: "Query understanding (no fluff)." },
+    { id: "hybrid", label: "Hybrid retrieval", phase: "Index", hint: "Vectors · time · entity graph." },
+    { id: "rerank", label: "Cross-encoder rerank", phase: "Rank", hint: "Scores each candidate." },
+    { id: "conf", label: "Calibrated confidence", phase: "Output", hint: "You gate tool/UI on this." },
+    { id: "hits", label: "Top-k hits", phase: "Payload", hint: "Turns · observations · entities." },
+  ]}
+/>
+
+## One example turn
 
 ```python
 {"role": "user", "text": "I just moved from Seattle to Austin for a job at Acme.", "timestamp": "..."}
 ```
 
-| Layer | What's stored |
+| Layer | What you get |
 | --- | --- |
-| Turn | Full text, role, timestamp, dedup hash |
-| Observations | `lives_in: Austin`, `previously_lived_in: Seattle`, `works_at: Acme` |
-| Entities | `Person(self)`, `Place(Seattle)`, `Place(Austin)`, `Org(Acme)` — linked |
-| Temporal | A point on the user's timeline |
+| Turn | Full text, role, timestamp, dedupe metadata |
+| Observations | Facts like current city, previous city, employer |
+| Entities | Typed nodes (person, place, org) wired together |
+| Temporal | Events on a lightweight timeline |
 
-You don't think about extraction — it's automatic. You *can* pre-extract and pass observations inline. See [`conversations.remember`](/sdk/conversations-remember).
+## BYO facts
 
-<Card title="Next: multi-user memory" icon="layer-group" href="/concepts/scopes" horizontal>
-  Org / user / session partitioning.
+You can ignore extraction and use defaults. Already have facts? Attach them on `remember`—see [`conversations.remember`](/sdk/conversations-remember).
+
+<Card title="Next: scopes and multi-tenancy" icon="layer-group" href="/concepts/scopes" horizontal>
+  How `org_id`, `user_id`, and `session_id` isolate memory.
 </Card>
