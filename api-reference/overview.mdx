@@ -1,11 +1,11 @@
 ---
 title: "REST API overview"
-description: "Base URL, JWT auth, correlation IDs, error bodies, rate limits, retries—everything before you open the endpoint list."
+description: "Base URL, JWT auth, correlation IDs, errors, limits, and retries."
 icon: "globe"
 ---
 
 <Info>
-  If you are in Python, prefer the [SDK](/sdk/installation) so JWT refresh stays handled for you. Stay on this page for curl, other languages, or when you are debugging raw HTTP.
+  In Python, prefer the [SDK](/sdk/installation). It handles token exchange and refresh for you. Use this page for curl, other languages, or raw HTTP debugging.
 </Info>
 
 ## Quick reference
@@ -18,7 +18,7 @@ icon: "globe"
 | Trace failures | `X-Correlation-ID` + JSON `request_id` |
 | Limits & metering | [Usage, quotas, and billing](/concepts/usage-billing) |
 
-Small surface: **`/me`**, **`/ingestion/memory`**, **`/recall`**, **`/usage/*`**.
+The API is small, and auth works the same way across it: **`/me`**, **`/ingestion/memory`**, **`/recall`**, and **`/usage/*`**.
 
 ## Base URL
 
@@ -34,7 +34,7 @@ Every product endpoint expects:
 Authorization: Bearer <access_token>
 ```
 
-You mint `<access_token>` by posting your API key to [`POST /auth/token-exchange`](/api-reference/auth/token-exchange). After that you treat it like any short-lived bearer token.
+Create `<access_token>` by posting your API key to [`POST /auth/token-exchange`](/api-reference/auth/token-exchange). Then send it like any other short-lived bearer token.
 
 ## Content type
 
@@ -46,7 +46,7 @@ Content-Type: application/json
 
 ## Correlation IDs
 
-Each request should carry (or receive) an `X-Correlation-ID` UUID. The server mints one if you skip it; the SDK always sends its own so your service logs and ours match. Paste that value into support threads.
+Each request can include an `X-Correlation-ID` UUID. If you do not send one, the server creates one. The SDK always sends one so your logs and ours match. Include this value in support threads.
 
 ```http
 X-Correlation-ID: 4f1d8e3c-2a9b-4c0d-9e6f-1a2b3c4d5e6f
@@ -66,11 +66,11 @@ Standard HTTP status codes:
 | `401` | Auth failure |
 | `403` | Forbidden |
 | `404` | Not found |
-| `422` | Validation error (FastAPI shape) |
+| `422` | Validation error (FastAPI request format) |
 | `429` | Daily quota exceeded |
-| `5xx` | Tex platform fault—retry with backoff, then escalate with the correlation ID |
+| `5xx` | Tex platform fault. Retry with backoff, then escalate with the correlation ID. |
 
-Error body shape:
+Error body:
 
 ```json
 {
@@ -85,14 +85,14 @@ Error body shape:
 ## Rate limits
 
 <Info>
-  Limits are per organization. Today the free tier allows **1,000,000** `tokens_in` and **5,000,000** `tokens_out` each UTC day, resetting at **00:00 UTC**. See [Usage, quotas, and billing](/concepts/usage-billing) for how that shows up in responses and dashboards.
+  Limits are per organization. The free tier allows **1,000,000** `tokens_in` and **5,000,000** `tokens_out` each UTC day. Both reset at **00:00 UTC**. [Usage, quotas, and billing](/concepts/usage-billing) explains how this appears in responses and dashboards.
 </Info>
 
 ## Retries
 
-You should retry **twice** with exponential backoff on `408`, `500`, `502`, `503`, `504`, and hard network failures. Respect `Retry-After` when the API sends it.
+Retry **twice** with exponential backoff on `408`, `500`, `502`, `503`, `504`, and hard network failures. Respect `Retry-After` when the API sends it.
 
-Skip retries for `400`, `401`, `403`, `404`, `422`, and `429`—those will not magically clear on a replay.
+Do not retry `400`, `401`, `403`, `404`, `422`, or quota `429`. A replay will usually fail the same way.
 
 ## Endpoints
 

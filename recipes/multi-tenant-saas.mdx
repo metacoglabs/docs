@@ -1,12 +1,12 @@
 ---
 title: "Multi-tenant SaaS pattern"
-description: "You fan out many customers on one Tex org, or you mint one key per customer—pick the pattern that matches your billing story."
+description: "Choose one shared Tex org or one Tex org per customer."
 icon: "building"
 ---
 
-You isolate tenants two ways. Most teams stay on **Pattern A**.
+There are two common ways to isolate tenants. Most teams should start with **Pattern A**.
 
-## A — one key, bake user into `session_id`
+## A - one key, put the user in `session_id`
 
 <Steps>
   <Step title="Share a cached Tex client">
@@ -53,7 +53,7 @@ You isolate tenants two ways. Most teams stay on **Pattern A**.
         return {"answer": answer}
     ```
 
-    You swap `your_llm(...)` for your stack; you list the turns you already send today.
+    Replace `your_llm(...)` with your model call. Reuse the same turn format you already store.
   </Step>
 </Steps>
 
@@ -65,10 +65,10 @@ You isolate tenants two ways. Most teams stay on **Pattern A**.
 | Isolation | Strong, as long as you do not collide `session_id` |
 
 <Note>
-  The SDK accepts a constructor `user_id`, but **scopes are per client instance today**. If you spun up one `Tex` per end-user you would thrash TLS pools. Until per-call `user_id` ships in SDK **1.2**, you keep encoding the tenant into `session_id`.
+  The SDK accepts `user_id` in the constructor, but scopes are per client instance today. Creating one `Tex` client per end user would waste connection pools. Until per-call `user_id` ships in SDK **1.2**, keep the tenant in `session_id`.
 </Note>
 
-## B — one key per customer org
+## B - one key per customer org
 
 <Steps>
   <Step title="Mint a fresh org when you onboard">
@@ -98,7 +98,7 @@ You isolate tenants two ways. Most teams stay on **Pattern A**.
         return Tex(api_key=row.tex_api_key, base_url=os.environ["TEX_BASE_URL"])
     ```
 
-    You cache instances in a TTL map (~1h) so warm connections stick around without leaking every user forever.
+    Cache instances in a TTL map for about 1 hour. That keeps warm connections without keeping every customer client forever.
   </Step>
 </Steps>
 
@@ -109,22 +109,22 @@ You isolate tenants two ways. Most teams stay on **Pattern A**.
 | Dashboard | Each customer can log into Tex directly |
 | Isolation | Hard boundary at org level |
 
-## Which one
+## Which pattern to choose
 
 <CardGroup cols={2}>
   <Card title="Pattern A" icon="users">
-    You ship an app *on top of* Tex—shared infra, simplest ops, you own metering.
+    You ship an app on top of Tex. Infrastructure is shared, ops are simpler, and metering stays in your product.
   </Card>
   <Card title="Pattern B" icon="handshake">
-    You *resell* Tex and customers expect their own bill + console.
+    You resell Tex and customers expect their own bill and console.
   </Card>
 </CardGroup>
 
 ## Shared quota (A only)
 
-Daily quotas are **per Tex org**. Under Pattern A every user shares **your** quota—one noisy tenant can starve everyone.
+Daily quotas are **per Tex org**. Under Pattern A, every user shares **your** quota. One noisy tenant can affect everyone.
 
-Mitigations **you** layer in:
+Add these controls in your own app:
 
 - You track per-user bytes/tokens yourself (`usage` is on every response).
 - You soft-cap heavy users (for example switch off memory after they consume 10% of your daily budget).

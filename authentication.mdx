@@ -7,14 +7,16 @@ icon: "key"
 import { AuthSequence } from "/snippets/flow-visuals.mdx";
 
 <Info>
-  If you only need a working client, start with the [Quickstart](/quickstart). Return here when you are wiring secrets, bringing your own JWT, or planning key rotation.
+  If you only need a working client, start with the [Quickstart](/quickstart). Come back here when you are wiring secrets, using your own JWT, or rotating keys.
 </Info>
 
-Your API key is exchanged for short-lived access and refresh tokens the first time the SDK hits a real product route. After that the client keeps JWTs in memory (or your hooks), refreshes them before they expire, and you rarely handle raw token strings yourself.
+The SDK starts with your API key. On the first real call, it exchanges that key for short-lived access and refresh tokens.
+
+After that, the client keeps the tokens in memory, refreshes them when needed, and retries the original call. Most apps never need to handle raw token strings.
 
 ## Flow
 
-The numbered list below matches this sequence—your app calls the SDK; the SDK talks to the API (including exchange, refresh, and retries).
+The diagram shows what happens when your app calls the SDK.
 
 ```mermaid
 sequenceDiagram
@@ -50,29 +52,29 @@ sequenceDiagram
     {
       id: "construct",
       title: "You build the client",
-      detail: "Tex(api_key=…) — lazy, zero bytes on the wire until you call a real method.",
+      detail: "Tex(api_key=...) does not call the network until you run a real method.",
     },
     {
       id: "first",
       title: "You call recall/remember/usage",
-      detail: "SDK POSTs /auth/token-exchange, receives access (≈24h) + refresh (≈7d) JWTs.",
+      detail: "The SDK calls POST /auth/token-exchange and receives access (24h) and refresh (7d) JWTs.",
     },
     {
       id: "steady",
       title: "SDK attaches Bearer access token",
-      detail: "Your business call runs (for example POST /recall) with Authorization: Bearer ….",
+      detail: "Your call runs with Authorization: Bearer <access_token>.",
     },
     {
       id: "refresh",
       title: "When access expires",
-      detail: "Next call may 401; SDK POSTs /auth/refresh, retries once with the new access token — you still await a single method call.",
+      detail: "The SDK calls POST /auth/refresh, gets a new access token, and retries once.",
     },
   ]}
 />
 
 ## Auth mode
 
-Use **one** of these:
+Most apps use an API key. Use one of the other modes only when you already manage auth somewhere else.
 
 <Tabs>
   <Tab title="API key (recommended)">
@@ -82,7 +84,7 @@ Use **one** of these:
         base_url="https://api.getmetacognition.com",
     )
     ```
-    Default for almost every app. The SDK handles exchange and refresh.
+    This is the default for most apps. The SDK handles token exchange and refresh.
   </Tab>
   <Tab title="Bring your own JWT">
     ```python
@@ -95,10 +97,10 @@ Use **one** of these:
     )
     ```
 
-    Useful when you broker auth in a separate service and pass JWTs to your client.
+    Use this when another service already creates the JWTs.
 
     <Warning>
-      Unlike the api-key flow, BYO-JWT does **not** auto-fill `org_id` / `user_id` from `/auth/verify`. Pass them explicitly — every `remember` and `recall` needs them in the request scope.
+      BYO-JWT does **not** auto-fill `org_id` / `user_id` from `/auth/verify`. Pass them explicitly. Every `remember` and `recall` needs them in the request scope.
     </Warning>
   </Tab>
   <Tab title="Org + user login (debug only)">
@@ -111,7 +113,7 @@ Use **one** of these:
     ```
 
     <Warning>
-      `/auth/login` is **disabled** in production (returns 403 unless the integration backend runs with `DEBUG=true`). Use this only for local development against a self-hosted backend. For production apps, use an API key.
+      `/auth/login` is **disabled** in production. It returns 403 unless the integration backend runs with `DEBUG=true`. Use this only for local development against a self-hosted backend. In production, use an API key.
     </Warning>
   </Tab>
 </Tabs>
@@ -123,13 +125,13 @@ Use **one** of these:
     `.env` file. Add it to `.gitignore`. Load with `python-dotenv`.
   </Card>
   <Card title="Docker / Kubernetes" icon="boxes-stacked">
-    Secret manager → mounted as `TEX_API_KEY` env var.
+    Secret manager mounted as `TEX_API_KEY` env var.
   </Card>
   <Card title="Vercel / Netlify" icon="cloud">
-    Project Environment Variables → `TEX_API_KEY`.
+    Project environment variable named `TEX_API_KEY`.
   </Card>
   <Card title="GitHub Actions" icon="github">
-    Repository secret → exposed via `${{ secrets.TEX_API_KEY }}`.
+    Repository secret exposed as `${{ secrets.TEX_API_KEY }}`.
   </Card>
 </CardGroup>
 
@@ -145,10 +147,10 @@ The SDK reads `TEX_API_KEY` from the environment automatically when `api_key=` i
     Deploy with `TEX_API_KEY=<key B>`.
   </Step>
   <Step title="Verify">
-    Check the dashboard's "last used" column or your own logs.
+    Check the dashboard's `last_used_at` value or your own logs.
   </Step>
   <Step title="Revoke key A">
-    Click **Revoke** on the old key. Existing JWTs minted from key A keep working for up to 24h, so step 4 has zero customer-visible impact.
+    Click **Revoke** on the old key. JWTs created from key A can keep working for up to 24h, so customers do not see a sudden failure.
   </Step>
 </Steps>
 
@@ -177,7 +179,7 @@ $ curl -X POST https://api.getmetacognition.com/auth/token-exchange \
 </CodeGroup>
 
 <Note>
-  **Token lifetimes.** Access JWT lasts 24h. Refresh JWT lasts 7d. Beyond that, the SDK re-exchanges your API key automatically. JWTs are stateless — to invalidate one, revoke the underlying API key.
+  **Token lifetimes.** Access JWTs last 24h. Refresh JWTs last 7d. After that, the SDK exchanges your API key again. To invalidate tokens, revoke the API key they came from.
 </Note>
 
 <Card title="Next: multi-user memory" icon="layer-group" href="/concepts/scopes" horizontal>

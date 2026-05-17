@@ -1,8 +1,10 @@
 ---
 title: "Inspect usage"
-description: "Today's totals and monthly rollups—same fields as the dashboard."
+description: "Read today's totals and monthly rollups from the SDK."
 icon: "chart-pie"
 ---
+
+Use these methods to read org-wide usage totals. They are useful for dashboards, quota checks, and billing reports.
 
 ```python
 tex.usage.today()                    # today's usage + daily quota
@@ -10,7 +12,7 @@ tex.usage.summary()                  # current calendar month
 tex.usage.summary(month="2026-03")   # specific month
 ```
 
-These calls don't count against your own quota — query them as often as you want.
+These helpers are read-only. **They do not count toward your quota**.
 
 ## `tex.usage.today()`
 
@@ -94,23 +96,23 @@ df.set_index("month")[["tokens_in","tokens_out"]].plot.bar()
 
 ## Patterns
 
-- **Per-response usage** is on every `remember` / `recall`:
+- **Per-response usage** is on every `remember` and `recall`:
 
   ```python
   hits = tex.recall(q="...", session_id=sid)
   print(hits.usage.tokens_in, hits.usage.tokens_out)
   ```
 
-- **Quota-aware routing** — gate non-essential paths past 90%:
+- **Quota-aware routing** - turn off non-essential memory paths past 90%:
 
   ```python
   if tex.usage.today().tokens_in_used > 0.9 * tex.usage.today().tokens_in_limit:
       return generate_without_memory(query)
   ```
 
-  Cache `usage.today()` on your side (≤ 60s) — this is soft gating, not strict.
+  Cache `usage.today()` on your side for up to 60 seconds. Use it as a soft guard, not a strict limiter.
 
-- **Usage charts** — call `summary(month="YYYY-MM")` for each of the last 6 months and render with whatever charting lib you use.
+- **Usage charts** - call `summary(month="YYYY-MM")` for each of the last 6 months and render the results in your charting library.
 
 <Card title="Next: Handle errors" icon="triangle-exclamation" href="/sdk/errors">
   Every exception class and how to handle it.

@@ -1,10 +1,12 @@
 ---
 title: "Usage, quotas, and billing"
-description: "What we meter (tokens in/out), how daily caps work, and how to reason about cost as you scale."
+description: "What Tex meters, how daily caps work, and how to keep memory costs predictable."
 icon: "receipt"
 ---
 
-We bill on **`tokens_in`** plus **`tokens_out`**, counted with **`tiktoken`** using the **`cl100k_base`** vocabulary. The free tier allows **1M** tokens in and **5M** out per UTC day; exceeding either side returns **`429`**. Every response includes a **`usage`** object, and **`tex.usage.today()`** / **`.summary()`** give you org-level rollups.
+Tex tracks two numbers: **`tokens_in`** and **`tokens_out`**. It counts them with **`tiktoken`** and the **`cl100k_base`** vocabulary.
+
+On the free tier, each org gets **1M** tokens in and **5M** tokens out per UTC day. If either limit is exceeded, the API returns **`429`**. Every **`remember`** and **`recall`** response includes a **`usage`** object. The SDK helpers **`tex.usage.today()`** and **`tex.usage.summary()`** show the same totals as the dashboard.
 
 ## Free tier
 
@@ -23,7 +25,7 @@ Both reset at **00:00 UTC**. Crossing either limit raises **`RateLimitError`** (
 
 ### Per response
 
-Every `remember` and `recall` returns usage for that call:
+Every **`remember`** and **`recall`** returns usage for that call:
 
 ```python
 hits = tex.recall(q="...", session_id=sid)
@@ -38,13 +40,13 @@ month = tex.usage.summary()       # current calendar month
 march = tex.usage.summary("2026-03")
 ```
 
-The [Dashboard → Usage](https://app.getmetacognition.com/dashboard/usage) page shows the same numbers graphically.
+The [Dashboard Usage page](https://app.getmetacognition.com/dashboard/usage) shows the same numbers.
 
 ## Cost knobs
 
-| lever | why it helps |
+| Lever | Why it helps |
 | --- | --- |
-| **Lower `top_k`** | Defaults are 15 / 25; live chat often needs only 5–8. |
+| **Lower `top_k`** | Defaults are 15 / 25. Live chat often needs only 5-8. |
 | **Stay on `active`** | `deep` mode costs more time and tokens than `active`. |
 | **Trim noisy writes** | Skip one-word acks and redundant system spam in `remember`. |
 | **Batch turns** | Send many turns in one `remember` instead of dozens of calls. |
@@ -57,11 +59,11 @@ if tex.usage.today().tokens_in_used / 1_000_000 > 0.9:
 
 ## Alerting
 
-There is no hosted email alert yet. Poll **`tex.usage.today()`** every few minutes from your own monitor and page when either usage column crosses **~90%** of quota. Server-side emails near **80%** are on the [roadmap](/changelog).
+There is no hosted email alert yet. Poll **`tex.usage.today()`** from your own monitor. Page your team when either usage column crosses **~90%** of quota. Server-side emails near **80%** are on the [roadmap](/changelog).
 
 ## Pricing (later)
 
-Billing will be pay-as-you-go once pricing is published. Daily caps remain safety rails—we intend to **notify** you as you approach limits rather than surprise-**429** production, but treat today’s behavior as authoritative until the billing docs update.
+Billing will be pay-as-you-go once pricing is published. Daily caps stay in place as safety rails. Until the billing docs change, treat today's **`429`** behavior as the source of truth.
 
 <Card title="Install SDK" icon="download" href="/sdk/installation" horizontal>
   `pip install tex-sdk`

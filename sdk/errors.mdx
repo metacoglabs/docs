@@ -4,7 +4,9 @@ description: "Exception types, which status codes retry automatically, and what 
 icon: "triangle-exclamation"
 ---
 
-All Tex exceptions inherit from `tex.TexError`. You almost always want to catch one of:
+When something fails, start with the exception class. If you need a symptom-based guide, use [Troubleshooting](/troubleshooting).
+
+All Tex exceptions inherit from `tex.TexError`. Most apps catch one of these:
 
 | Class | Status | Inherits | When |
 | --- | --- | --- | --- |
@@ -18,25 +20,25 @@ All Tex exceptions inherit from `tex.TexError`. You almost always want to catch 
 | [`InternalServerError`](#internalservererror) | 5xx | `APIStatusError` | Our problem; SDK retried |
 | [`APITimeoutError`](#apitimeouterror) | — | `APIConnectionError` → `APIError` | Network or server too slow |
 | [`APIConnectionError`](#apiconnectionerror) | — | `APIError` | DNS, TLS, connection reset |
-| [`APIResponseValidationError`] | — | `APIError` | Server returned an unexpected shape |
+| [`APIResponseValidationError`] | - | `APIError` | Server returned an unexpected response |
 
 `TexHTTPError` (alias of `APIStatusError`) and `TexAuthError` (alias of `AuthenticationError`) are kept for backward compatibility.
 
-## Common shape
+## Common fields
 
 ```python
 # All TexError subclasses
 e.message         # human-readable
 
-# APIStatusError subclasses (everything with an HTTP status — see "Inherits" column above)
+# APIStatusError subclasses (everything with an HTTP status)
 e.status_code     # int
-e.request_id      # X-Correlation-ID — quote in support tickets
-e.details         # dict — server's full JSON, may include field-level errors
+e.request_id      # X-Correlation-ID; include this in support tickets
+e.details         # dict; server JSON, may include field errors
 e.response_text   # raw response body, capped at 2KB
 ```
 
 <Warning>
-  `APITimeoutError` and `APIConnectionError` are **network errors**, not HTTP errors — they don't have `status_code`, `request_id`, `details`, or `response_text` because the request never produced a response. Catch them separately.
+  `APITimeoutError` and `APIConnectionError` are **network errors**, not HTTP errors. They do not have `status_code`, `request_id`, `details`, or `response_text` because the request never produced a response. Catch them separately.
 </Warning>
 
 ```python
@@ -60,47 +62,47 @@ except BadRequestError as e:
 
 ### `BadRequestError`
 
-Returned when a payload is malformed. Common causes:
+Raised when a payload is malformed. Common causes:
 
 - Missing required field on a turn (e.g. no `text`)
 - Invalid `mode` value on `recall`
-- Invalid `session_id` shape (must be a string)
+- Invalid `session_id` value. It must be a string.
 
-`e.details` includes a Pydantic-style `loc` list that tells you exactly which field broke.
+`e.details` includes a Pydantic-style `loc` list that points to the bad field.
 
 ### `AuthenticationError`
 
-Status 401. The SDK already attempted a JWT refresh (once) before raising.
+Status 401. The SDK already tried one JWT refresh before raising.
 
 ```python
 try:
     tex.recall(q=q, session_id=sid)
 except AuthenticationError as e:
     if "Invalid API key" in e.message:
-        # Real bad-key situation
+        # Bad API key
         rotate_key_alarm()
     else:
-        # JWT refresh failed — likely revoked
+        # JWT refresh failed, likely revoked
         notify_user("please log in again")
 ```
 
 ### `PermissionDeniedError`
 
-Status 403. The credential is valid but lacks scope. Mostly relevant for keys you've scoped down (admin keys, read-only keys). For default keys this shouldn't fire.
+Status 403. The credential is valid but lacks scope. This mostly matters for scoped keys. Default keys should not hit this.
 
 ### `NotFoundError`
 
-Status 404. You referenced something that doesn't exist — typically a stale `key_id` on `DELETE /me/api-keys/{id}`.
+Status 404. You referenced something that does not exist. This is often a stale `key_id` on `DELETE /me/api-keys/{id}`.
 
 ### `UnprocessableEntityError`
 
-Status 422. FastAPI's Pydantic validation rejected the payload. The SDK builds payloads for you, so this usually only fires when you've passed an unexpected type.
+Status 422. FastAPI validation rejected the payload. The SDK builds payloads for you, so this usually means an argument has the wrong type.
 
 ### `RateLimitError`
 
 Status 429. The SDK retries on `429` like other transient codes (with exponential backoff and `Retry-After` honored), so by the time you see this exception the SDK has already exhausted retries.
 
-For **daily-quota 429s** (the normal case), retries are futile until midnight UTC — set `max_retries=0` for paths where you'd rather fail fast and degrade:
+For **daily-quota 429s**, retries will not help until midnight UTC. Set `max_retries=0` on paths where you would rather fail fast:
 
 ```python
 try:
@@ -109,7 +111,7 @@ except RateLimitError as e:
     return generate_without_memory(q)   # graceful degradation
 ```
 
-The `e.details` payload tells you which cap fired (`tokens_in_daily` or `tokens_out_daily`) and when it resets:
+The `e.details` payload tells you which cap was exceeded (`tokens_in_daily` or `tokens_out_daily`) and when it resets:
 
 ```python
 e.details
@@ -118,11 +120,11 @@ e.details
 
 ### `InternalServerError`
 
-Status 5xx. The SDK already retried (default 2x with exponential backoff). If you still see this, file a ticket with `e.request_id`.
+Status 5xx. The SDK already tried the request again with exponential backoff. If you still see this, file a ticket with `e.request_id`.
 
 ### `APITimeoutError`
 
-The request didn't return within `timeout`. The SDK retries on timeout, but ultimately surfaces `APITimeoutError` if all attempts fail.
+The request did not return within `timeout`. The SDK retries timeouts. If every attempt fails, it raises `APITimeoutError`.
 
 ```python
 try:
@@ -133,7 +135,7 @@ except APITimeoutError:
 
 ### `APIConnectionError`
 
-DNS, TLS, or socket-level failure. Same retry behavior as `APITimeoutError`. If you see this in production, check your egress proxy / firewall.
+DNS, TLS, or socket-level failure. The retry behavior is the same as `APITimeoutError`. If you see this in production, check your egress proxy or firewall.
 
 ## Built-in retries
 
@@ -149,15 +151,15 @@ Default: **2 retries** with exponential backoff (0.5s, 1s). Override:
 tex = Tex(api_key=..., max_retries=5)
 ```
 
-The `Retry-After` header is honored — if the server says wait 3 seconds, the SDK waits at least 3 (not capped at the backoff value).
+The SDK honors `Retry-After`. If the server says wait 3 seconds, the SDK waits at least 3 seconds.
 
 <Note>
-  `429` on quota retries the same as other `429`s—but you are still over the cap when the retry lands, so `RateLimitError` still fires. If that waste bugs you, set `max_retries=0` on quota-sensitive paths.
+  Quota `429`s retry like other `429`s. The retry will still fail if you are over the cap. Set `max_retries=0` on quota-sensitive paths if you want to fail faster.
 </Note>
 
 ## Idempotency
 
-`remember` is idempotent (turn-hash dedup). `recall` and `usage.*` are read-only. Safe to retry any of them.
+`remember` is idempotent because Tex deduplicates turns by hash. `recall` and `usage.*` are read-only. It is safe to retry any of them.
 
 <Card title="Next: REST API" icon="code" href="/api-reference/overview">
   Direct HTTP integration without the SDK.

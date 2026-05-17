@@ -1,10 +1,12 @@
 ---
 title: "Exchange API key for tokens"
-description: "Trade an API key for short-lived access + refresh JWTs—mirrors what the Python SDK does on first call."
+description: "Exchange an API key for short-lived access and refresh JWTs."
 api: "POST https://api.getmetacognition.com/auth/token-exchange"
 ---
 
-Trades an API key for a JWT access/refresh pair. The Python SDK does this automatically — call this directly only if you're integrating from another language or brokering tokens in a separate service.
+Exchange your API key for an access token and refresh token. This is the HTTP version of what the SDK does on first use. See [Authentication](/authentication) for the full flow.
+
+Call this directly only when you are not using the Python SDK, or when another service brokers tokens for your app.
 
 ## Body
 
@@ -80,7 +82,7 @@ const tokens = await resp.json();
 
 ## JWT contents
 
-Decode the access token (don't *trust* the contents — verify with the [JWKS endpoint](https://api.getmetacognition.com/.well-known/jwks.json) if you need to):
+Decode the access token if you want to inspect its claims. If you need to trust those claims, verify the token with the [JWKS endpoint](https://api.getmetacognition.com/.well-known/jwks.json).
 
 ```json
 {

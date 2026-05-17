@@ -1,6 +1,6 @@
 ---
-title: "Benchmarks & methodology"
-description: "LoCoMo and LongMemEval_S scores, per-category tables, latency, and token efficiency—so you can verify claims yourself."
+title: "Benchmarks and methodology"
+description: "LoCoMo and LongMemEval_S scores, with category tables, latency, tokens, and methodology."
 icon: "trophy"
 ---
 
@@ -21,19 +21,21 @@ export const Chart = ({title, children}) => (
   </div>
 );
 
-On **LoCoMo**, the full Tex stack scores **93.3%** overall. On **LongMemEval_S** (active retrieval only), Tex is at **92.2%**. The sections that follow break out categories, latency, and tokens in plain view so you can reproduce the story yourself.
+Tex scores **93.3%** overall on **LoCoMo** with the full system. Tex scores **92.2%** on **LongMemEval_S** with active retrieval only.
+
+This page shows the category tables, latency, tokens, and methodology behind those numbers.
 
 <CardGroup cols={2}>
   <Card title="LoCoMo · 93.3%" icon="trophy">
-    Full Tex system vs published baselines—EverMemOS was the prior headline number at **92.3%**.
+    Full Tex system vs published baselines. EverMemOS was the prior headline number at **92.3%**.
   </Card>
   <Card title="LongMemEval_S · 92.2%" icon="trophy">
-    Active retrieval track vs other retrieval-first systems—Emergence AI posted **86.0%** on comparable reporting.
+    Active retrieval track vs other retrieval-first systems. Emergence AI posted **86.0%** on comparable reporting.
   </Card>
 </CardGroup>
 
 <Info>
-  We generated answers with **gpt-4o-mini** and graded them with **gpt-4o** in an LLM-as-judge configuration. Each evaluation ran on a **single** machine from start to finish (no multi-node setup). The precise recipe is in **Methodology** below.
+  We generated answers with **gpt-4o-mini** and graded them with **gpt-4o** in an LLM-as-judge setup. Each evaluation ran on a **single** machine. The exact setup is in **Methodology** below.
 </Info>
 
 ## LoCoMo
@@ -66,7 +68,7 @@ LoCoMo evaluates long-conversation memory across 10 multi-session conversations 
 </Chart>
 
 <Tip>
-  On adversarial items Tex is **99.33%**: it declines to answer when the transcript does not support one. If a vendor’s public write-up skips that bucket, treat their headline number with the skepticism it deserves.
+  On adversarial items Tex is **99.33%**. It declines to answer when the transcript does not support an answer. If a public benchmark skips that bucket, compare headline numbers carefully.
 </Tip>
 
 ## LongMemEval_S
@@ -105,7 +107,7 @@ LongMemEval_S evaluates memory over **500 questions across ~48 sessions each (~1
 </Chart>
 
 <Tip>
-  **92.2%** sits next to Oracle GPT-o3 (**92.0%**) and well above Oracle GPT-4o (**82.4%**). In practice that means the retrieval step is surfacing roughly the same evidence you would hand-pick for each question—without you doing the hand-picking.
+  **92.2%** is close to Oracle GPT-o3 (**92.0%**) and well above Oracle GPT-4o (**82.4%**). That means retrieval is finding evidence close to what you would hand-pick for each question.
 </Tip>
 
 ## Latency
@@ -153,16 +155,16 @@ LongMemEval_S evaluates memory over **500 questions across ~48 sessions each (~1
 </Chart>
 
 <Tip>
-  Ingest here costs **zero LLM tokens**—offline embeds only. Vendors that run an LLM per message will show up in your bill; ask them before you commit.
+  Ingest here costs **zero LLM tokens**. This run used offline embeddings only. If a system runs an LLM per message during ingest, that cost should show up in token usage.
 </Tip>
 
 ### Headline efficiency claims
 
-Compared with published Mem0 numbers, Tex lands about **27%** higher on accuracy while using roughly **87%** fewer tokens and running at about **95%** lower latency. Against MemMachine’s memory-only configuration it is about **5.8%** more accurate on **43%** fewer tokens. On LoCoMo the stack also posts the lowest tokens-per-correct-answer we have recorded here — about **1,296** — because ingestion never spends LLM cycles on every message.
+Compared with published Mem0 numbers, Tex is about **27%** higher on accuracy, uses roughly **87%** fewer tokens, and runs at about **95%** lower latency. Against MemMachine's memory-only configuration, Tex is about **5.8%** more accurate on **43%** fewer tokens. On LoCoMo, Tex also has the lowest tokens-per-correct-answer in this comparison: about **1,296**.
 
 ## Ablation: what each part of the pipeline adds
 
-On LongMemEval_S, peeling layers off the production retrieval pipeline:
+On LongMemEval_S, removing pieces of the retrieval pipeline changes accuracy like this:
 
 | Capability | What it does | Δ accuracy |
 | --- | --- | --- |
@@ -178,13 +180,13 @@ On LongMemEval_S, peeling layers off the production retrieval pipeline:
 
 Answers came from **`gpt-4o-mini`**. We graded them with an LLM-as-judge setup built on **`gpt-4o`**, using category-specific prompts, binary pass/fail per item, and a straight average inside each category.
 
-**LoCoMo** used all ten provided conversations (**1,984** question–answer pairs) against the **full Tex system** (not retrieval-only). **LongMemEval_S** used **500** questions with about **48** sessions each (~115K tokens per trace) against **Tex Active** retrieval only.
+**LoCoMo** used all ten provided conversations (**1,984** question-answer pairs) against the **full Tex system** (not retrieval-only). **LongMemEval_S** used **500** questions with about **48** sessions each (~115K tokens per trace) against **Tex Active** retrieval only.
 
-Hardware was a **single** machine for the full pipeline—no multi-node orchestration—and runs completed without someone babysitting intermediate steps.
+The full pipeline ran on a **single** machine. There was no multi-node orchestration.
 
 ## On our roadmap for evals
 
-We plan to add **MemoryAgentBench (ICLR 2026)** (retrieval quality, learning on the fly, long context, conflicting facts), stronger **multi-step reasoning** when answers need counting or arithmetic over evidence, and **LongMemEval_M** for the nasty case of hundreds of sessions behind one question.
+We plan to add **MemoryAgentBench (ICLR 2026)**, stronger multi-step reasoning for questions that need counting or arithmetic over evidence, and **LongMemEval_M** for questions that span hundreds of sessions.
 
 ## References
 
@@ -197,5 +199,5 @@ We plan to add **MemoryAgentBench (ICLR 2026)** (retrieval quality, learning on 
 7. Mastra. *Observational Memory: 95% on LongMemEval.* 2026.
 
 <Card title="Run the quickstart" icon="play" href="/quickstart" horizontal>
-  You go from `pip install tex-sdk` to a printed recall in one sitting.
+  Install the SDK, store one turn, and print a recall result.
 </Card>

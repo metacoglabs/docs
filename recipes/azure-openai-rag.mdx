@@ -1,10 +1,10 @@
 ---
 title: "RAG on Azure OpenAI"
-description: "You pair Tex recall with Azure GPT-4o answers—same loop works for any chat-completions API if you swap the client."
+description: "Use Tex recall with Azure OpenAI chat completions."
 icon: "cloud"
 ---
 
-Recall → answer → remember. Same loop on OpenAI direct or Anthropic—swap the client.
+This recipe uses the same flow as the [FastAPI recipe](/recipes/fastapi). Recall memory, answer with Azure OpenAI, then store the new turn.
 
 <Steps>
   <Step title="Install">
@@ -96,8 +96,8 @@ Recall → answer → remember. Same loop on OpenAI direct or Anthropic—swap t
   </Step>
 </Steps>
 
-## Harder stuff
+## Production notes
 
-- **You cite sources** — pass hit ids into the prompt and ask the model to quote `[mem:<id>]` so you can deep-link later.
-- **You retry deep recall** — if `confidence < 0.4`, you call `tex.recall(..., mode="deep")` once before answering.
-- **You stream** — you set `stream=True`, and you enqueue `remember` in a background worker so the stream starts instantly.
+- **Citations:** pass hit ids into the prompt and ask the model to quote `[mem:<id>]`. Use that id to link answers back to memory.
+- **Weak recall:** if `confidence < 0.4`, call `tex.recall(..., mode="deep")` once before answering.
+- **Streaming:** set `stream=True`, then enqueue `remember` in a background worker so the stream can start quickly.

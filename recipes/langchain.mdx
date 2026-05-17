@@ -1,15 +1,17 @@
 ---
 title: "LangChain agents with memory"
-description: "You give LangChain a Tex-backed tool, or you inject recall yourself before the chain—pick what matches how much autonomy you want."
+description: "Add Tex memory to LangChain by injecting recall before the chain or exposing recall as a tool."
 icon: "link"
 ---
 
-Two setups:
+There are two common ways to use Tex with LangChain.
 
-|  |  |
+Most chat apps should recall memory before the chain runs. Agents that choose their own steps can receive Tex as tools.
+
+| Pattern | When to use |
 | --- | --- |
-| **Inject** | You recall before the chain; most chat apps. |
-| **Tools** | Agent calls `recall` when it wants; heavier, flexible. |
+| **Inject** | Your code recalls once per user message. |
+| **Tools** | The model decides when to read or write memory. |
 
 ## Inject (default)
 
@@ -116,12 +118,12 @@ Two setups:
 </Steps>
 
 <Tip>
-  You merge additional LangChain tools into the same `tools=[...]` list whenever your agent needs them—the Tex tools behave like every other tool.
+  Add other LangChain tools to the same `tools=[...]` list. The Tex tools behave like normal tools.
 </Tip>
 
-## Vs `BaseChatMemory`
+## Compared to `BaseChatMemory`
 
-LangChain buffers keep *everything*; Tex retrieves *top‑k*. You delete sliding-window hacks and stop blowing context windows.
+LangChain buffers keep history in process. Tex stores memory outside the process and returns the top matches for the current question. That keeps prompts smaller and survives deploys.
 
 <CodeGroup>
 ```python Before
@@ -136,8 +138,8 @@ chain = ConversationChain(llm=llm, memory=memory)
 hits = tex.recall(q=user_msg, session_id=sid, top_k=5)
 prompt = stitch(hits.hits.turns, user_msg)
 answer = llm.invoke(prompt)
-tex.conversations.remember(session_id=sid, turns=[...])  # fill like your prod code
+tex.conversations.remember(session_id=sid, turns=[...])  # use your normal turn format
 ```
 </CodeGroup>
 
-You want the full playbook? Read [Migrating from LangChain memory](/migration/from-langchain-memory).
+For the migration details, continue to [Migrating from LangChain memory](/migration/from-langchain-memory).

@@ -102,14 +102,14 @@ export const TokenRetryVisual = () => (
             POST /auth/token-exchange
           </div>
           <div className="mt-2 text-xs leading-snug text-zinc-600 dark:text-zinc-400">
-            Send your API key again. 200 means retry with the new token. 401 means the key is dead—you need a new
+            Send your API key again. 200 means retry with the new token. 401 means the key is dead and you need a new
             one or a proper login flow.
           </div>
         </div>
       </div>
       <p className="mb-0 mt-3.5 text-xs leading-relaxed text-zinc-600 dark:text-zinc-400">
         In most SDK setups a single failed request can walk through refresh (and then exchange) before your code
-        surfaces an error—unless the full chain returns 401.
+        returns an error unless the full chain returns 401.
       </p>
     </figure>
   </div>

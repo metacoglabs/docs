@@ -1,10 +1,10 @@
 ---
 title: "Monthly usage summary"
-description: "Calendar-month rollups in UTC—handy for finance and capacity reviews."
+description: "Read monthly token rollups in UTC."
 api: "GET https://api.getmetacognition.com/usage/summary"
 ---
 
-Calendar-month rollup, UTC. Defaults to the current month.
+Returns a calendar-month usage rollup in UTC. If you omit `month`, the endpoint returns the current month.
 
 ## Headers
 
@@ -25,11 +25,11 @@ Authorization: Bearer <access_token>
 </ResponseField>
 
 <ResponseField name="start" type="string">
-  First moment of the month, UTC.
+  First moment of the month in UTC.
 </ResponseField>
 
 <ResponseField name="end" type="string">
-  First moment of the next month, UTC.
+  First moment of the next month in UTC.
 </ResponseField>
 
 <ResponseField name="tokens_in" type="integer">

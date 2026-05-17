@@ -1,10 +1,10 @@
 ---
 title: "Recall memory"
-description: "REST `recall`: natural-language query, ranked hits, confidence, token usage in the response."
+description: "Search memory with a natural-language query and get ranked hits, confidence, and usage."
 api: "POST https://api.getmetacognition.com/recall"
 ---
 
-REST equivalent of `tex.recall(...)`.
+This is the REST version of **`tex.recall`**. Use it before generation to get the memory your model should read. For **`mode`**, **`top_k`**, and confidence, see [Recall and ranking](/concepts/retrieval).
 
 ## Headers
 
@@ -29,11 +29,11 @@ Content-Type: application/json
 ```
 
 <ParamField body="scope.org_id" type="string" required>
-  Your org id (≥ 1 char). Server uses the JWT's `org_id` claim for tenancy regardless — this field is required for Pydantic validation only.
+  Your org id. Minimum length is 1 character. The server still uses the JWT's `org_id` claim for tenancy; this field is required for request validation.
 </ParamField>
 
 <ParamField body="scope.session_id" type="string">
-  Session to search. Optional — falls back to the JWT's `session_id`.
+  Session to search. Optional. Falls back to the JWT's `session_id`.
 </ParamField>
 
 <ParamField body="q" type="string" required>
@@ -41,11 +41,11 @@ Content-Type: application/json
 </ParamField>
 
 <ParamField body="mode" type='"active" | "deep"' default='"active"'>
-  Retrieval depth. See [retrieval](/concepts/retrieval).
+  Retrieval depth. See [Recall and ranking](/concepts/retrieval).
 </ParamField>
 
 <ParamField body="top_k" type="integer">
-  Hits to return across all kinds. **Defaults to 15 (active) / 25 (deep).** Pydantic validates `1 ≤ top_k ≤ 50`; the runtime then caps at **30**, so values above 30 are silently clamped.
+  Hits to return across all kinds. **Defaults to 15 (active) / 25 (deep).** Request validation accepts `1 <= top_k <= 50`; runtime caps the final value at **30**.
 </ParamField>
 
 <ParamField body="include_timeline" type="boolean" default="false">
@@ -63,7 +63,7 @@ Content-Type: application/json
 </ResponseField>
 
 <ResponseField name="hits.entities" type="array">
-  Linked entities. Each entity has `{id?, label, score}` — **not** the same shape as turns/observations.
+  Linked entities. Each entity has `{id?, label, score}`. This is different from turns and observations.
 </ResponseField>
 
 <ResponseField name="confidence" type="number">
@@ -82,7 +82,7 @@ Content-Type: application/json
   `{tokens_in, tokens_out}` for this call.
 </ResponseField>
 
-### Hit shape
+### Hit fields
 
 ```json
 {

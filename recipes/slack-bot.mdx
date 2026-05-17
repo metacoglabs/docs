@@ -1,10 +1,12 @@
 ---
 title: "Slack bot with channel memory"
-description: "You run a Slack Bolt app that remembers every channel message and answers @mentions with Tex recall."
+description: "Build a Slack Bolt app that remembers channel messages and answers mentions with Tex recall."
 icon: "hashtag"
 ---
 
-You mirror each Slack channel into its own Tex `session_id`. You **listen** for plain messages to `remember`, and you **listen** for app mentions to `recall` + reply.
+Give each Slack channel its own Tex **`session_id`**. Save normal messages with **`remember`**. When someone mentions the bot, use **`recall`** to answer from that channel's memory.
+
+This uses the same isolation pattern as [Scopes and multi-tenancy](/concepts/scopes).
 
 <Steps>
   <Step title="Install Bolt + Tex">
@@ -14,7 +16,7 @@ You mirror each Slack channel into its own Tex `session_id`. You **listen** for 
   </Step>
 
   <Step title="Export tokens">
-    You load classic bot + app tokens (socket mode shown here):
+    Load the bot and app tokens. This example uses socket mode:
 
     ```bash
     SLACK_BOT_TOKEN=xoxb-...
@@ -25,7 +27,7 @@ You mirror each Slack channel into its own Tex `session_id`. You **listen** for 
   </Step>
 
   <Step title="Wire Slack events">
-    You ignore bot spam, remember human text, and answer mentions with recall:
+    Ignore bot messages, remember human text, and answer mentions with recall:
 
     ```python bot.py
     import os
@@ -60,7 +62,7 @@ You mirror each Slack channel into its own Tex `session_id`. You **listen** for 
     def answer(event, say):
         query = event["text"].split(">", 1)[-1].strip()
         if not query:
-            say("Ask me something — I'll dig through this channel's memory.")
+            say("Ask me something and I'll search this channel's memory.")
             return
 
         hits = tex.recall(q=query, session_id=session_for(event["channel"]), top_k=5)
@@ -82,7 +84,7 @@ You mirror each Slack channel into its own Tex `session_id`. You **listen** for 
     python bot.py
     ```
 
-    You type in channel, then `@YourBot what did we decide?` to verify recall.
+    Type in a channel, then ask `@YourBot what did we decide?` to verify recall.
   </Step>
 </Steps>
 
@@ -92,4 +94,4 @@ You mirror each Slack channel into its own Tex `session_id`. You **listen** for 
 | --- | --- |
 | **Channel vs DM** | You keep `slack-{channel}` for shared rooms; you append `-{user}` if you need private scratch space. |
 | **Noise** | You filter joins, uploads, reactions **before** `remember` so you do not pay tokens for junk. |
-| **Latency** | You react with `:thinking_face:` immediately—`recall` can take 1–3s — then you post the final text. |
+| **Latency** | React with `:thinking_face:` right away. `recall` can take 1-3s. Post the final answer after recall finishes. |

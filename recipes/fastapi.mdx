@@ -1,10 +1,16 @@
 ---
 title: "Production chatbot (FastAPI)"
-description: "You run a small FastAPI service with Tex on every turn—one client per process, recall, generate, remember."
+description: "Build a FastAPI chat route that recalls memory, calls your model, and stores the new turn."
 icon: "server"
 ---
 
-One `/chat` route: recall → your LLM → remember. One cached `Tex` per process so you are not reconnecting every hit.
+This recipe puts the quickstart loop behind one HTTP route:
+
+1. Recall memory for the incoming message.
+2. Call your model.
+3. Store the user and assistant turns.
+
+Create one **`Tex`** client per process and reuse it across requests.
 
 ## Layout
 
@@ -25,11 +31,11 @@ One `/chat` route: recall → your LLM → remember. One cached `Tex` per proces
     └── chat.py        # /chat route
     ```
 
-    You can rename `app/`—just keep the import paths consistent in `uvicorn`.
+    Rename `app/` if you want. Keep the import paths consistent in `uvicorn`.
   </Step>
 
   <Step title="Cache your Tex client">
-    You read secrets from the environment and construct Tex **once**:
+    Read secrets from the environment and construct Tex **once**:
 
     ```python deps.py
     from functools import cache
@@ -47,11 +53,11 @@ One `/chat` route: recall → your LLM → remember. One cached `Tex` per proces
         )
     ```
 
-    You call `tex_client()` inside FastAPI `Depends(...)` so every route shares the same pool.
+    Use `tex_client()` inside FastAPI `Depends(...)` so every route shares the same connection pool.
   </Step>
 
   <Step title="Build the chat route">
-    You derive `session_id` from headers + body, recall with a small `top_k`, swallow quota/timeouts, then remember both sides of the turn:
+    Derive `session_id` from the user and the chat. Recall with a small `top_k`. If Tex times out or quota is exhausted, answer without memory. Then store both sides of the turn:
 
     ```python chat.py
     from datetime import datetime, timezone
@@ -97,11 +103,11 @@ One `/chat` route: recall → your LLM → remember. One cached `Tex` per proces
         return {"answer": answer}
     ```
 
-    You swap `your_llm.complete(...)` for whatever stack you already use (OpenAI, Azure, local, etc.).
+    Replace `your_llm.complete(...)` with your model call.
   </Step>
 
   <Step title="Expose the app">
-    You mount the router once:
+    Mount the router once:
 
     ```python main.py
     from fastapi import FastAPI
@@ -113,20 +119,20 @@ One `/chat` route: recall → your LLM → remember. One cached `Tex` per proces
   </Step>
 
   <Step title="Run locally">
-    You export your key and launch uvicorn:
+    Export your key and launch uvicorn:
 
     ```bash
     export TEX_API_KEY=tex_live_...
     uvicorn app.main:app --reload
     ```
 
-    You hit `POST /chat` with JSON `{"text":"...","session_id":"..."}` and header `x-user-id`.
+    Send `POST /chat` with JSON `{"text":"...","session_id":"..."}` and header `x-user-id`.
   </Step>
 </Steps>
 
 ## Full files
 
-If you prefer one copy block, you can still paste the trio together:
+If you prefer one copy block, paste these files:
 
 <CodeGroup>
 ```python deps.py
@@ -196,45 +202,43 @@ app.include_router(router)
 ```
 </CodeGroup>
 
-## Prod tweaks
+## Production tweaks
 
-<AccordionGroup>
-  <Accordion title="You push remember off the hot path" icon="bolt">
-    Holding the HTTP request open for `remember` adds ~100–250ms tail latency. You enqueue a background task instead:
+### Run `remember` in the background
 
-    ```python
-    from fastapi import BackgroundTasks
+Do not make the user wait for **`remember`**. Enqueue it in the background:
 
-    @router.post("/chat")
-    def chat(
-        body: ChatBody,
-        bg: BackgroundTasks,
-        x_user_id: str = Header(...),
-        tex: Tex = Depends(tex_client),
-    ):
-        # ... recall + answer ...
-        bg.add_task(
-            tex.conversations.remember,
-            session_id=sid,
-            turns=[user_turn, assistant_turn],
-        )
-        return {"answer": answer}
-    ```
-  </Accordion>
+```python
+from fastapi import BackgroundTasks
 
-  <Accordion title="You bound recall latency" icon="stopwatch">
-    You set `Tex(timeout=2.0)` and catch `APITimeoutError` so a slow recall never blocks your entire generation window.
-  </Accordion>
+@router.post("/chat")
+def chat(
+    body: ChatBody,
+    bg: BackgroundTasks,
+    x_user_id: str = Header(...),
+    tex: Tex = Depends(tex_client),
+):
+    # ... recall + answer ...
+    bg.add_task(
+        tex.conversations.remember,
+        session_id=sid,
+        turns=[user_turn, assistant_turn],
+    )
+    return {"answer": answer}
+```
 
-  <Accordion title="You add a health probe" icon="heart">
-    ```python
-    @app.get("/healthz")
-    def healthz(tex: Tex = Depends(tex_client)):
-        try:
-            tex.usage.today()
-            return {"ok": True}
-        except Exception as e:
-            return {"ok": False, "error": str(e)}, 503
-    ```
-  </Accordion>
-</AccordionGroup>
+### Bound recall latency
+
+Set **`Tex(timeout=2.0)`** and catch **`APITimeoutError`**. If recall is slow, answer without memory instead of blocking the whole chat request.
+
+### Add a health probe
+
+```python
+@app.get("/healthz")
+def healthz(tex: Tex = Depends(tex_client)):
+    try:
+        tex.usage.today()
+        return {"ok": True}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}, 503
+```

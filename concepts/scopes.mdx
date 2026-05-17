@@ -1,10 +1,12 @@
 ---
 title: "Scopes and multi-tenancy"
-description: "How org_id, user_id, and session_id partition memory so your customers never leak into each other."
+description: "Use org_id, user_id, and session_id to keep memory separated."
 icon: "layer-group"
 ---
 
-Every call keys off **`(org_id, user_id, session_id)`**. `org_id` comes from your API key. **`session_id` is yours**—that’s where you put thread / channel / tenant.
+Every memory call is scoped by **`org_id`**, **`user_id`**, and **`session_id`**.
+
+Your API key decides **`org_id`**. The SDK usually gets **`user_id`** from the token. Your app chooses **`session_id`**. That is the field you use for a chat thread, Slack channel, agent run, or tenant-specific memory.
 
 | Field | Source | You set it? |
 | --- | --- | --- |
@@ -12,7 +14,7 @@ Every call keys off **`(org_id, user_id, session_id)`**. `org_id` comes from you
 | `user_id` | JWT (or per-call override when supported) | Sometimes |
 | `session_id` | Your application | **Always** |
 
-`session_id` is the knob you touch daily.
+In most apps, **`session_id`** is the field you set on every call.
 
 ## `session_id`
 
@@ -33,11 +35,11 @@ Pick a stable pattern:
   </Card>
 </CardGroup>
 
-Keep strings deterministic for the same logical thread so `recall` sees the same corpus every time.
+Use the same string for the same logical thread. That way **`recall`** searches the same memory each time.
 
 ## SaaS (one key)
 
-Map each customer to a distinct **`session_id`** (and optionally `user_id` when you use overrides). One shared `Tex` client is enough:
+For a SaaS app, map each customer or user conversation to a distinct **`session_id`**. One shared **`Tex`** client is enough:
 
 ```python
 tex = Tex(api_key=os.environ["TEX_API_KEY"], base_url=BASE_URL)
@@ -48,12 +50,12 @@ def chat(user_msg: str, x_user_id: str, conv_id: str):
     ...
 ```
 
-That gives you **one bill** and **hard separation** between tenants—as long as you never reuse someone else’s `session_id` by accident.
+That gives you one bill and separated memory. The only rule is simple: never reuse one customer's **`session_id`** for another customer.
 
 <Note>
-  Fine-grained per-call `user_id` overrides are planned for **SDK 1.2**. Until then, encoding the end user into `session_id` is the cleanest pattern. See the [multi-tenant SaaS recipe](/recipes/multi-tenant-saas).
+  Per-call `user_id` overrides are planned for **SDK 1.2**. Until then, include the end user in `session_id`. The [multi-tenant SaaS recipe](/recipes/multi-tenant-saas) shows the full pattern.
 </Note>
 
-<Card title="Recall & ranking" icon="magnifying-glass" href="/concepts/retrieval" horizontal>
+<Card title="Recall and ranking" icon="magnifying-glass" href="/concepts/retrieval" horizontal>
   `top_k`, modes, confidence.
 </Card>

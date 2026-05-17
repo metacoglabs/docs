@@ -1,13 +1,13 @@
 ---
 title: "Refresh access token"
-description: "Rotate access tokens using a valid refresh token; the SDK calls this after a 401."
+description: "Use a refresh token to get a new access token."
 api: "POST https://api.getmetacognition.com/auth/refresh"
 icon: "arrows-rotate"
 ---
 
-import { TokenRetryVisual } from "../../snippets/flow-visuals.mdx";
+import { TokenRetryVisual } from "/snippets/flow-visuals.mdx";
 
-Use this when an `access_token` has expired but the `refresh_token` is still valid. The SDK does this automatically on 401.
+Use this when an `access_token` has expired and the `refresh_token` is still valid. The SDK does this automatically after a 401.
 
 ## Body
 
@@ -28,7 +28,7 @@ Use this when an `access_token` has expired but the `refresh_token` is still val
 </ResponseField>
 
 <ResponseField name="refresh_token" type="string">
-  Possibly rotated; persist whichever the response returns.
+  May be rotated. Store the value returned by the response.
 </ResponseField>
 
 <ResponseField name="token_type" type="string">
@@ -61,10 +61,10 @@ tokens = resp.json()
 
 ## When refresh fails
 
-If the refresh token is itself expired (>7d old) or revoked (the underlying API key was revoked), `/auth/refresh` returns `401`. Fall back to `/auth/token-exchange` with the original API key — or, if the API key is also gone, surface a re-login flow.
+If the refresh token is expired (more than 7 days old) or revoked, `/auth/refresh` returns `401`. At that point, call `/auth/token-exchange` with the original API key. If the API key is also gone, ask the user or service to authenticate again.
 
 ### After 401
 
 <TokenRetryVisual />
 
-Without the SDK, implement the same sequence in your HTTP client. With the SDK you usually only surface `AuthenticationError` if refresh **and** exchange both fail.
+Without the SDK, implement this sequence in your HTTP client. With the SDK, `AuthenticationError` usually means refresh **and** exchange both failed.

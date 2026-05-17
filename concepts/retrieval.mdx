@@ -1,35 +1,32 @@
 ---
 title: "Recall and ranking"
-description: "Active vs deep recall, tuning top_k, and when to trust—or ignore—the confidence score."
+description: "Choose active or deep recall, set top_k, and decide when confidence is strong enough."
 icon: "magnifying-glass"
 ---
 
-Stick with **`mode="active"`** for anything a person is staring at; switch to **`deep`** when you can spend more time or when **`active`** keeps coming back thin. **`top_k`** is your dial for context size—tight in chat, generous in digests—and it feeds straight into **`tokens_out`**. When **`confidence`** stays under about **0.3**, plan on skipping memory for that turn, widening the query, or trying **`deep`** once.
+[How memory works](/concepts/memory-model) explains what Tex stores. This page explains how to choose what comes back.
 
-Python: `tex.recall(q, session_id, ...)`. HTTP: [recall](/api-reference/memory/recall).
+Use **`mode="active"`** for chat and copilots. Use **`mode="deep"`** when the user can wait longer, or when active recall is not finding enough.
+
+Use **`top_k`** to choose how many hits you give the model. Smaller values keep prompts tight. Larger values help summaries, digests, and long answers. Since hits count toward **`tokens_out`**, this also affects cost.
+
+If **`confidence`** stays under about **0.3**, do not force the memory into the prompt. Try **`mode="deep"`** once, raise **`top_k`**, or ask a clearer **`q`**.
+
+Python uses **`tex.recall(q, session_id, ...)`**. HTTP uses **`POST /recall`** with the same ideas. The REST field list is in [Recall memory](/api-reference/memory/recall).
 
 ## Modes
 
 ### `active` (default)
 
-- **Best for:** Chat, copilots, anything with a person waiting.
-- **Rough latency:** about **1.5–2.5 s** end-to-end in typical setups.
+- **Best for:** Chat, copilots, and live user flows.
+- **Rough latency:** about **1.5-2.5 s** end-to-end in typical setups.
 - **Behavior:** Single-pass retrieval and ranking.
 
 ### `deep`
 
-- **Best for:** Offline jobs, “why did we decide X?” investigations, or a second pass after weak `active` results.
-- **Rough latency:** about **3–6 s**.
+- **Best for:** Offline jobs, decision reviews, or a second pass after weak `active` results.
+- **Rough latency:** about **3-6 s**.
 - **Behavior:** Two-pass with heavier reranking.
-
-<CardGroup cols={2}>
-  <Card title="active" icon="bolt">
-    Default. Fast path for interactive products.
-  </Card>
-  <Card title="deep" icon="diagram-project">
-    Slower, richer retrieval when latency is acceptable.
-  </Card>
-</CardGroup>
 
 ## `top_k`
 
@@ -37,11 +34,11 @@ Defaults: **15** (`active`) / **25** (`deep`). The server caps at **30** no matt
 
 | Situation | Starting `top_k` |
 | --- | --- |
-| Tight assistant prompt | 3–5 |
-| Standard chat with citations | 8–15 |
-| Summaries or long answers | 20–30 |
+| Tight assistant prompt | 3-5 |
+| Standard chat with citations | 8-15 |
+| Summaries or long answers | 20-30 |
 
-Larger `top_k` directly increases **`tokens_out`** on your bill—see [Usage, quotas, and billing](/concepts/usage-billing).
+Larger `top_k` directly increases **`tokens_out`** on your bill. How that maps to quota is in [Usage, quotas, and billing](/concepts/usage-billing).
 
 ## Confidence
 
@@ -50,7 +47,7 @@ Every recall returns **`confidence` in [0, 1]**, calibrated so that roughly **`P
 | Range | How to read it | Practical move |
 | --- | --- | --- |
 | **≥ 0.6** | Strong | Pass context to the model as-is. |
-| **0.3 – 0.6** | Mixed | Use hits, but cite or summarize sources for the user. |
+| **0.3 - 0.6** | Mixed | Use hits, but cite or summarize sources for the user. |
 | **< 0.3** | Weak | Try `mode="deep"`, rephrase `q`, or skip memory for this turn. |
 
 ```python
@@ -66,9 +63,9 @@ RecallHit(id, text, score, kind, timestamp)        # turns + observations
 RecallEntity(id, label, score)                     # entities
 ```
 
-- **`hits.hits.turns`** — usual choice for stuffing a system prompt.
-- **`hits.hits.observations`** — atomic facts.
-- **`hits.hits.entities`** — useful for analytical or “who / what / where” questions.
+- **`hits.hits.turns`** - use these for most prompts.
+- **`hits.hits.observations`** - small facts extracted from prior turns.
+- **`hits.hits.entities`** - people, places, and organizations that help with "who", "what", and "where" questions.
 
 ## Timeline string
 

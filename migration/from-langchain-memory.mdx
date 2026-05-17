@@ -1,25 +1,25 @@
 ---
 title: "Migrate from LangChain chat memory"
-description: "Move off BaseChatMemory-style buffers to Tex-backed recall with a short mapping guide."
+description: "Move from LangChain chat buffers to Tex-backed recall."
 ---
 
-LangChain's built-in memory classes (`ConversationBufferMemory`, `ConversationBufferWindowMemory`, `ConversationSummaryMemory`, `ConversationKGMemory`) are **buffers, summarizers, or graphs** that live inside your process. Tex is a **hosted retrieval service.**
+If you came from the [LangChain recipe](/recipes/langchain), this page gives the longer comparison.
 
-The migration moves you from "give the LLM the whole sliding window" to "give the LLM the relevant slice."
+LangChain memory classes live inside your process. They keep buffers, summaries, or graphs near the chain. Tex stores memory outside the process and returns the relevant slice when you call **`recall`**.
 
 ## Mapping
 
 | LangChain | Tex equivalent |
 | --- | --- |
-| `ConversationBufferMemory` | `recall(q=user_msg, session_id=sid, top_k=20)` — surfaces the relevant 20 turns instead of the last N. |
-| `ConversationBufferWindowMemory(k=10)` | `recall(q=user_msg, session_id=sid, top_k=10)` — same `k`, but ranked by relevance. |
-| `ConversationSummaryMemory` | Tex stores extracted observations automatically. Surface them via `recall`'s `hits.observations`. |
+| `ConversationBufferMemory` | `recall(q=user_msg, session_id=sid, top_k=20)` returns the relevant 20 turns instead of the last N. |
+| `ConversationBufferWindowMemory(k=10)` | `recall(q=user_msg, session_id=sid, top_k=10)` uses the same `k`, but ranks by relevance. |
+| `ConversationSummaryMemory` | Tex stores extracted observations automatically. Read them from `recall`'s `hits.observations`. |
 | `ConversationKGMemory` | Tex builds an entity graph in the background. Query via `hits.entities` (linked across observations). |
 
 ## Migration
 
 <Tabs>
-  <Tab title="ConversationChain — before">
+  <Tab title="ConversationChain - before">
     ```python
     from langchain.chains import ConversationChain
     from langchain.memory import ConversationBufferWindowMemory
@@ -34,7 +34,7 @@ The migration moves you from "give the LLM the whole sliding window" to "give th
     answer = chain.invoke({"input": user_msg})["response"]
     ```
   </Tab>
-  <Tab title="Tex retrieval — after">
+  <Tab title="Tex retrieval - after">
     ```python
     from langchain.prompts import ChatPromptTemplate
     from langchain_openai import ChatOpenAI
@@ -63,15 +63,13 @@ The migration moves you from "give the LLM the whole sliding window" to "give th
   </Tab>
 </Tabs>
 
-## Tradeoffs
+## Trade-offs
 
-In-process LangChain memory = zero network. Tex = network + ~150ms writes, multi-second reads.
+LangChain memory has no network hop. Tex adds a network call: writes are usually around 150ms, and reads can take a few seconds.
 
-**Down:** slower request, depends on our API.
+In return, memory survives deploys, prompts stay bounded, sessions can share memory, and each recall has a confidence score.
 
-**Up:** survives deploys, bounded prompts, cross-session memory, confidence, extracted facts.
-
-Hobby bot: buffer is fine. Customer-facing: Tex is usually worth it.
+For a small hobby bot, a buffer may be enough. For a customer-facing app, Tex is usually the cleaner path.
 
 ## Drop-in adapter (optional)
 
@@ -110,7 +108,7 @@ class TexChatMemory(BaseChatMemory):
         )
 
     def clear(self) -> None:
-        # No-op — Tex memory persists by design
+        # No-op. Tex memory persists by design.
         pass
 ```
 

@@ -1,10 +1,10 @@
 ---
 title: "Streamlit chat UI"
-description: "You build one Streamlit page that recalls from Tex, streams GPT output, and shows which memories fired."
+description: "Build one Streamlit page that recalls from Tex, streams GPT output, and shows the memories used."
 icon: "desktop"
 ---
 
-You get a **browser-friendly demo** that survives reruns because Tex—not `st.session_state`—owns long-term memory. You still keep lightweight UI state only for what Streamlit redraw needs.
+This recipe builds a small browser demo. Streamlit can rerun the script often, but Tex keeps the long-term memory. `st.session_state` only stores UI state for the current browser session.
 
 <Steps>
   <Step title="Install packages">
@@ -14,7 +14,7 @@ You get a **browser-friendly demo** that survives reruns because Tex—not `st.s
   </Step>
 
   <Step title="Bootstrap clients once">
-    You wrap `Tex` and `OpenAI` in `@st.cache_resource` so Streamlit does not recreate TLS pools every interaction:
+    Wrap `Tex` and `OpenAI` in `@st.cache_resource` so Streamlit does not recreate clients on every interaction:
 
     ```python
     import os
@@ -38,7 +38,7 @@ You get a **browser-friendly demo** that survives reruns because Tex—not `st.s
   </Step>
 
   <Step title="Pin a session id per browser tab">
-    You store a stable `sid` in session state; optionally you read `?uid=` from the query string so QA can fork personas quickly:
+    Store a stable `sid` in session state. You can also read `?uid=` from the query string to test different users:
 
     ```python
     if "sid" not in st.session_state:
@@ -51,7 +51,7 @@ You get a **browser-friendly demo** that survives reruns because Tex—not `st.s
   </Step>
 
   <Step title="Show usage in the sidebar">
-    You call `tex.usage.today()` for a quick quota sanity check during demos:
+    Call `tex.usage.today()` to show current quota usage during demos:
 
     ```python
     with st.sidebar:
@@ -66,7 +66,7 @@ You get a **browser-friendly demo** that survives reruns because Tex—not `st.s
   </Step>
 
   <Step title="Render chat + handle input">
-    You paint historic bubbles from `st.session_state.messages`, then watch `st.chat_input`:
+    Render messages from `st.session_state.messages`, then handle `st.chat_input`:
 
     ```python
     for m in st.session_state.messages:
@@ -126,13 +126,13 @@ You get a **browser-friendly demo** that survives reruns because Tex—not `st.s
     streamlit run app.py
     ```
 
-    You open `http://localhost:8501/?uid=alice` and `?uid=bob` in two tabs to prove isolation.
+    Open `http://localhost:8501/?uid=alice` and `?uid=bob` in two tabs to test isolation.
   </Step>
 </Steps>
 
 ## One file
 
-If you want one block to paste, use this full `app.py` (same logic as the steps above):
+If you want one block to paste, use this full `app.py`:
 
 ```python app.py
 import os
@@ -216,8 +216,10 @@ if prompt := st.chat_input("Talk to me…"):
     ]
 ```
 
-## Why bother
+## Why Streamlit + Tex
 
-- **You survive refreshes** — Streamlit session dies; Tex does not.
-- **You skip Redis/Postgres** for early demos.
-- **You debug recall visually** — expander shows exactly what the model saw.
+This pattern pairs a disposable browser UI with durable memory in Tex.
+
+- **Refreshes keep memory:** Streamlit session state can reset; Tex memory stays.
+- **No Redis or Postgres for demos:** Tex stores the long-term memory.
+- **Visible recall:** the expander shows exactly what the model saw.

@@ -1,10 +1,10 @@
 ---
 title: "Get current organization"
-description: "Authenticated org, user, and all API keys visible to that org."
+description: "Read the authenticated org, user, and visible API keys."
 api: "GET https://api.getmetacognition.com/me"
 ---
 
-Returns the authenticated org and user, plus all API keys for that **org** (not just the calling user).
+Returns the authenticated org and user, plus all API keys visible to that **org**.
 
 ## Headers
 
@@ -23,7 +23,7 @@ Authorization: Bearer <access_token>
 </ResponseField>
 
 <ResponseField name="api_keys" type="array">
-  Array of API key metadata for the org (sorted by `created_at` desc). Plaintext keys are **not** included — only metadata. To get the plaintext value, mint a new key via [`POST /me/api-keys`](/api-reference/account/api-keys).
+  API key metadata for the org, sorted by `created_at` descending. Plaintext keys are **not** included. To get a plaintext key, create a new one with [`POST /me/api-keys`](/api-reference/account/api-keys).
 </ResponseField>
 
 ## Example
@@ -68,6 +68,6 @@ print(me["org_id"], "→", len(me["api_keys"]), "keys")
 
 ## When to use
 
-- Build a "logged-in as…" UI in your own product.
+- Build a "logged-in as" UI in your own product.
 - Audit which keys are still active before a rotation.
-- Verify that `last_used_at` advances after a deploy (sanity check).
+- Verify that `last_used_at` advances after a deploy.

@@ -1,19 +1,25 @@
 ---
 title: "Quickstart"
-description: "From zero to a working remember + recall: install tex-sdk, set TEX_API_KEY, run one script, read the scores."
+description: "Install tex-sdk, set TEX_API_KEY, store one turn, recall it, and read the score."
 icon: "rocket"
 ---
 
 ## Goal
 
-One script: `remember` a turn, `recall` it with a question, print scores and token usage. A few minutes with Python 3.9+.
+In a few minutes, you will run one Python script that does the core Tex flow:
+
+1. Store a turn with **`remember`**.
+2. Ask a question with **`recall`**.
+3. Print the matching memory, confidence, and token usage.
+
+You need **Python 3.9+**.
 
 <Steps>
   <Step title="Get an API key">
     Open [app.getmetacognition.com/signup](https://app.getmetacognition.com/signup), create an account, and copy the key shown once.
 
     <Warning>
-      You only see the full key at creation time. Store it in a password manager or secret store now—rotating later is easy, guessing later is not.
+      You only see the full key when you create it. Store it now in a password manager or secret store.
     </Warning>
   </Step>
 
@@ -32,7 +38,7 @@ One script: `remember` a turn, `recall` it with a question, print scores and tok
     ```
     </CodeGroup>
 
-    You need **Python ≥ 3.9**. On PyPI the package is **`tex-sdk`**; in code you **`import tex`**.
+    On PyPI the package is **`tex-sdk`**. In Python you **`import tex`**.
   </Step>
 
   <Step title="Run this script">
@@ -64,31 +70,37 @@ One script: `remember` a turn, `recall` it with a question, print scores and tok
     ```
 
     <Check>
-      You should see the shellfish line with a numeric score, plus `confidence` and token usage. If you get `AuthenticationError`, your key or `base_url` is wrong—start with [Troubleshooting](/troubleshooting).
+      You should see the shellfish line with a score, plus `confidence` and token usage. If you get `AuthenticationError`, check your key and `base_url`, then use [Troubleshooting](/troubleshooting).
     </Check>
   </Step>
 </Steps>
 
 ## Next
 
-<AccordionGroup>
-  <Accordion title="Load the key from a .env file" icon="file-lines">
-    Use `python-dotenv` or your framework’s loader. Keep `.env` out of git. In production, inject `TEX_API_KEY` from the same secret store you use for every other third-party key.
-  </Accordion>
+Once the script works, decide how you want to load secrets and whether you want to stay on the SDK.
 
-  <Accordion title="Call the API without the SDK" icon="globe">
-    Read [REST API overview](/api-reference/overview): exchange the API key for a JWT, then call ingestion and recall with `Authorization: Bearer …`. The SDK exists so you do not write that refresh loop by hand.
-  </Accordion>
-</AccordionGroup>
+### Load the key from a `.env` file
+
+Use `python-dotenv` or your framework's loader. Keep `.env` out of git. In production, load `TEX_API_KEY` from your normal secret store.
+
+### Call the API without the SDK
+
+If you do not use the SDK, first exchange your API key for an **access token** and **refresh token**. Send `Authorization: Bearer ...` on ingest and recall. Refresh the access token when it expires. The [REST API overview](/api-reference/overview) lists the endpoints.
+
+The SDK does this for you.
 
 ## Reads
+
+<Tip>
+  If **`confidence`** is low but you know the memory exists, try **`mode="deep"`** once, raise **`top_k`**, or ask the question closer to the stored wording. [Recall and ranking](/concepts/retrieval) explains the knobs.
+</Tip>
 
 | Goal | Page |
 | --- | --- |
 | Understand what gets stored | [How memory works](/concepts/memory-model) |
 | Tune recall quality | [Recall and ranking](/concepts/retrieval) |
 | Ship real users | [Scopes and multi-tenancy](/concepts/scopes) |
-| Drop behind a real API | [Production chatbot (FastAPI)](/recipes/fastapi) |
+| Put a backend in front of a UI | [Production chatbot (FastAPI)](/recipes/fastapi) |
 | Production errors | [Errors and retries](/sdk/errors) |
 
 <CardGroup cols={2}>

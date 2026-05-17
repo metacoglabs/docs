@@ -1,13 +1,15 @@
 ---
 title: "Install the SDK"
-description: "Python 3.9+, pip or uv or poetry, verify the import, pin a version range in requirements."
+description: "Install tex-sdk, verify the import, and pin a safe version range."
 icon: "download"
 ---
 
 ## Requirements
 
-- Python ≥ 3.9
-- `pip`, `uv`, or `poetry`—pick whichever you already standardize on
+- Python 3.9 or newer
+- `pip`, `uv`, or `poetry`
+
+If you have not made a live **`remember`** and **`recall`** call yet, start with the [Quickstart](/quickstart).
 
 ## Install
 
@@ -46,11 +48,13 @@ python -c "import tex; print(tex.__version__)"
 tex-sdk>=1.1.0,<2
 ```
 
-For PEP 621 `pyproject.toml`, add `"tex-sdk>=1.1.0,<2"` under `[project].dependencies`. For Poetry, use `tex-sdk = "^1.1.0"` under `[tool.poetry.dependencies]` so minor releases flow in without a major bump surprising you.
+For PEP 621 `pyproject.toml`, add `"tex-sdk>=1.1.0,<2"` under `[project].dependencies`.
 
-## HTTP/2 and grumpy proxies
+For Poetry, use `tex-sdk = "^1.1.0"` under `[tool.poetry.dependencies]`.
 
-The SDK depends on `httpx[http2]` for multiplexing. If your corporate proxy strips HTTP/2, disable it when you construct the client:
+## HTTP/2 and proxies
+
+The SDK uses `httpx[http2]`. If your proxy strips HTTP/2, disable it when you construct the client:
 
 ```python
 tex = Tex(api_key=..., http2=False)
@@ -58,7 +62,7 @@ tex = Tex(api_key=..., http2=False)
 
 ## Types
 
-Stubs ship with the package (`py.typed`). Mypy and Pyright pick them up automatically—you do not need a separate `types-` stub distribution.
+Type stubs ship with the package (`py.typed`). Mypy and Pyright pick them up automatically. You do not need a separate `types-` package.
 
 ```python
 from tex import Tex, RecallResponse

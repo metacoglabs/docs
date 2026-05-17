@@ -1,10 +1,12 @@
 ---
 title: "Configure the client"
-description: "Constructor arguments, TEX_API_KEY and TEX_BASE_URL, HTTP/2, timeouts, and how the client lives across requests."
+description: "Set API keys, base URL, timeouts, retries, and client lifetime."
 icon: "sliders"
 ---
 
 ## `Tex(...)` constructor
+
+Create one **`Tex`** client and reuse it. The same client handles **`remember`**, **`recall`**, token refresh, retries, and usage calls.
 
 ```python
 Tex(
@@ -33,7 +35,7 @@ Tex(
 </ParamField>
 
 <ParamField path="org_id" type="str | None">
-  Default `org_id` for all requests. Optional — the SDK auto-fills from your JWT.
+  Default `org_id` for all requests. Optional. The SDK auto-fills it from your JWT.
 </ParamField>
 
 <ParamField path="user_id" type="str | None">
@@ -41,19 +43,19 @@ Tex(
 </ParamField>
 
 <ParamField path="session_id" type="str | None">
-  A default `session_id`. You usually pass this per-call instead.
+  Default `session_id`. Most apps pass this per call.
 </ParamField>
 
 <ParamField path="access_token" type="str | None">
   Bring-your-own JWT. If set, the SDK skips the `api_key` exchange.
 
   <Warning>
-    With BYO-JWT, the SDK does **not** auto-fill `org_id` / `user_id` from `/auth/verify`. Pass them explicitly to the constructor — `remember` and `recall` need them in the request `scope`.
+    With BYO-JWT, the SDK does **not** auto-fill `org_id` / `user_id` from `/auth/verify`. Pass them to the constructor. `remember` and `recall` need them in the request `scope`.
   </Warning>
 </ParamField>
 
 <ParamField path="refresh_token" type="str | None">
-  Companion to `access_token` — used for transparent refresh on 401.
+  Companion to `access_token`. Used for refresh on 401.
 </ParamField>
 
 <ParamField path="timeout" type="float" default="60.0">
@@ -61,7 +63,7 @@ Tex(
 </ParamField>
 
 <ParamField path="max_retries" type="int" default="2">
-  Retries on transient errors (408 / 429 / 5xx / network). Exponential backoff.
+  Retries transient errors: 408, 429, 5xx, and network failures.
 </ParamField>
 
 <ParamField path="http2" type="bool" default="true">
@@ -84,7 +86,7 @@ TEX_BASE_URL=https://api.getmetacognition.com
 
 ## Lifecycle
 
-The client maintains a pooled `httpx.Client` under the hood. **Construct once, reuse everywhere.**
+The client keeps a pooled `httpx.Client` under the hood. **Construct once, reuse everywhere.**
 
 <Tabs>
   <Tab title="✅ Module-level">
@@ -116,7 +118,7 @@ The client maintains a pooled `httpx.Client` under the hood. **Construct once, r
         tex = Tex(api_key=...)   # opens a new TLS session every request
         return tex.recall(...)
     ```
-    This costs you the TCP+TLS handshake on every call.
+    This opens a new TCP and TLS connection on every call.
   </Tab>
 </Tabs>
 
@@ -124,7 +126,7 @@ The client maintains a pooled `httpx.Client` under the hood. **Construct once, r
 
 The client is **thread-safe for read traffic** (`recall`, `usage.today`).
 
-For write traffic under high RPS, push to a worker pool:
+For high write volume, push **`remember`** calls to a worker pool:
 
 ```python
 from concurrent.futures import ThreadPoolExecutor
@@ -134,7 +136,7 @@ def remember_async(turns, sid):
     pool.submit(tex.conversations.remember, turns=turns, session_id=sid)
 ```
 
-A native async client is on the roadmap. Open an issue if you need it sooner.
+A native async client is on the roadmap.
 
 ## Closing
 
@@ -142,7 +144,7 @@ A native async client is on the roadmap. Open an issue if you need it sooner.
 tex.close()   # closes the underlying httpx.Client
 ```
 
-Or use the context manager pattern (above) — `__exit__` calls `close()`.
+Or use the context manager pattern above. `__exit__` calls `close()`.
 
 <Card title="Next: Remember" icon="comments" href="/sdk/conversations-remember">
   Push conversation turns into memory.

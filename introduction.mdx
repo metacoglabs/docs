@@ -1,23 +1,25 @@
 ---
-title: "Overview — What is Tex?"
-description: "Long-term memory for assistants and agents: you remember turns, you recall what matters, you keep prompts small."
+title: "Overview - What is Tex?"
+description: "Long-term memory for assistants and agents. Store turns, recall the useful ones, and keep prompts small."
 icon: "book-open"
 ---
 
 <Info>
-  New here? Run through the [Quickstart](/quickstart), skim this overview, then follow [Authentication](/authentication) before you ship to production.
+  New here? Start with the [Quickstart](/quickstart). Then read this overview and [Authentication](/authentication) before you ship.
 </Info>
 
-Chat apps usually force a bad choice: paste the whole thread every request, or lose state on refresh. Tex stores turns as they happen and pulls back what matches the *current* question—then you call your model.
+Most chat apps make you choose between two bad options. You either send the whole chat history to the model, or you lose memory when the page refreshes.
+
+Tex gives you a simpler path. Store each turn as it happens. When the user asks the next question, ask Tex for the few memories that matter. Then call your model with that smaller context.
+
+Your app still runs the model, routes, and UI. Tex handles storage, search, ranking, and usage tracking.
 
 ## API
 
 | Call | When |
 | --- | --- |
-| **`remember`** | New stuff to store (turns + optional metadata). |
-| **`recall`** | Call right before generation: pass a natural-language question, get ranked hits and a confidence score. |
-
-You keep model, routing, and UI. Tex does storage, retrieval, ranking, metering.
+| **`remember`** | Store new turns, plus optional metadata. |
+| **`recall`** | Before you call the model, ask for the most relevant memories. |
 
 <Callout icon="key" iconType="regular">
   Need access? Create an account in the [dashboard](https://app.getmetacognition.com/signup), copy the API key once, then follow the [Quickstart](/quickstart). Locally, set `TEX_API_KEY` or pass `api_key=` to the client.
@@ -27,10 +29,10 @@ You keep model, routing, and UI. Tex does storage, retrieval, ranking, metering.
 
 <CardGroup cols={2}>
   <Card title="Quickstart" icon="rocket" href="/quickstart" horizontal>
-    Install `tex-sdk`, one `remember`, one `recall`, print scores in the terminal.
+    Install `tex-sdk`, store one turn, recall it, and print the score.
   </Card>
   <Card title="Benchmarks" icon="chart-line" href="/benchmarks" horizontal>
-    LoCoMo and LongMemEval_S with splits, latency, and token math laid out in the open.
+    LoCoMo and LongMemEval_S results with splits, latency, and token counts.
   </Card>
 </CardGroup>
 
@@ -38,10 +40,10 @@ You keep model, routing, and UI. Tex does storage, retrieval, ranking, metering.
 
 <CardGroup cols={2}>
   <Card title="LoCoMo · 93.3%" icon="trophy">
-    Full-system benchmark; splits and baselines on [Benchmarks](/benchmarks).
+    Full-system benchmark. Tex is ahead of EverMemOS (**92.3%**), MemMachine v0.2 (**91.7%**), Zep (**~85%**), and Mem0 (**~66%**). See [Benchmarks](/benchmarks) for splits and methodology.
   </Card>
   <Card title="LongMemEval_S · 92.2%" icon="trophy">
-    Active retrieval track; how we ran the evals is on the same page.
+    Active retrieval track. Tex is ahead of Emergence AI (**86.0%**), Supermemory (**81.6%**), and Zep (**71.2%**). See [Benchmarks](/benchmarks) for per-ability tables.
   </Card>
 </CardGroup>
 
@@ -62,33 +64,31 @@ You keep model, routing, and UI. Tex does storage, retrieval, ranking, metering.
     ```
   </Step>
   <Step title="Generate">
-    Put `context` where your model reads it, answer, append new turns—repeat.
+    Put `context` where your model reads it. Answer the user. Store the new turns.
   </Step>
 </Steps>
 
 <Tip>
-  Low `confidence` at the start just means thin memory—feed real traffic and it moves.
+  Low `confidence` at the start usually means the session has very little memory. Store more real turns and the score becomes more useful.
 </Tip>
 
 ## More
 
-<AccordionGroup>
-  <Accordion title="Latency: active write vs background work" icon="diagram-project">
-    The synchronous part of `remember` returns fast; heavier enrichment continues afterward. Diagrams and timing notes live in [How memory works](/concepts/memory-model).
-  </Accordion>
+### Latency: active write vs background work
 
-  <Accordion title="Isolation between customers" icon="layer-group">
-    You partition with `org_id`, `user_id`, and `session_id`. Read [Scopes and multi-tenancy](/concepts/scopes) before you map those fields to your auth model.
-  </Accordion>
+The fast part of **`remember`** returns quickly. New turns are usually recallable within about **150 ms**. Tex then continues background work, such as observations, entities, and timeline updates. The diagrams and timing notes are in [How memory works](/concepts/memory-model).
 
-  <Accordion title="Python vs raw HTTP" icon="code">
-    Prefer the [Python SDK](/sdk/installation) for JWT exchange and refresh. Use [REST](/api-reference/overview) from other languages or when you already centralize HTTP in a gateway.
-  </Accordion>
+### Isolation between customers
 
-  <Accordion title="Quotas and billing" icon="receipt">
-    Metering is token-based with daily caps. Full detail is under [Usage, quotas, and billing](/concepts/usage-billing).
-  </Accordion>
-</AccordionGroup>
+Use **`org_id`**, **`user_id`**, and **`session_id`** to keep memory separated. [Scopes and multi-tenancy](/concepts/scopes) shows how to map those fields to your users and tenants.
+
+### Python vs raw HTTP
+
+Use the [Python SDK](/sdk/installation) if you want token exchange and refresh handled for you. Use the [REST API](/api-reference/overview) from another language, or when your service already owns HTTP calls.
+
+### Quotas and billing
+
+Tex meters `tokens_in` and `tokens_out` with daily caps. [Usage, quotas, and billing](/concepts/usage-billing) explains what counts and when limits reset.
 
 ## Docs
 

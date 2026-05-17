@@ -1,55 +1,53 @@
 ---
 title: "Troubleshooting"
-description: "Symptoms, likely causes, fixes, and what we need in a support email when you are stuck."
+description: "Match an error or symptom, apply the fix, and collect the right details for support."
 icon: "wrench"
 ---
 
 <Note>
-  Scan the **symptom table** first and match the log line or exception you are seeing. Open the accordions below when you need more narrative around a fix.
+  Start with the symptom table. Find the error or behavior you see, then try the fix in the same row.
 </Note>
 
 ## Match your symptom
 
 | Symptom | Likely cause | Fix |
 | --- | --- | --- |
-| `AuthenticationError: Invalid API key` on first call | Wrong key, revoked key, or wrong `base_url` | Mint a fresh key in the [dashboard](https://app.getmetacognition.com); confirm `TEX_BASE_URL` matches the environment you think you are hitting |
-| `BadRequestError: 'scope' field required` | Raw REST call without the scaffolding the SDK adds | Use the SDK, or include `scope: {org_id, session_id}` yourself in the JSON body |
+| `AuthenticationError: Invalid API key` on first call | Wrong key, revoked key, or wrong `base_url` | Mint a fresh key in the [dashboard](https://app.getmetacognition.com); confirm `TEX_BASE_URL` points to the right environment |
+| `BadRequestError: 'scope' field required` | Raw REST call without the fields the SDK normally adds | Use the SDK, or include `scope: {org_id, session_id}` yourself in the JSON body |
 | `recall` returns zero hits | Brand-new session, enrichment still catching up, or query mismatch | Wait a second after `remember`; broaden `q`; try `mode="deep"` once to see if signal appears |
 | `recall.confidence` looks stuck low | Query does not overlap stored content | Rephrase closer to the stored wording; raise `top_k`; try `mode="deep"` |
-| `RateLimitError` mid-day | Org exhausted daily quota | Wait for **00:00 UTC**, lower `top_k`, or trim noisy writes—see [Usage and billing](/concepts/usage-billing) |
+| `RateLimitError` mid-day | Org exhausted daily quota | Wait for **00:00 UTC**, lower `top_k`, or trim noisy writes. See [Usage and billing](/concepts/usage-billing) |
 | Slow `recall` (> 5s) | `mode="deep"` or cold caches | Default to `mode="active"` in user-facing paths; warm the client on deploy |
 | `httpx.RemoteProtocolError` / HTTP/2 noise | Middlebox stripped HTTP/2 | Instantiate with `Tex(http2=False)` |
-| Long `remember` blocks UX | You await ingestion on the hot request path | Push persistence to a worker—pattern in the [FastAPI recipe](/recipes/fastapi#production-tweaks) |
+| Long `remember` blocks UX | You await ingestion on the hot request path | Push persistence to a worker. The [FastAPI recipe](/recipes/fastapi#production-tweaks) shows the pattern |
 | Flaky CI against prod | Shared org contention or dirty sessions | Give CI its own org and sweep data on a schedule |
 | Dashboard `last_used_at` looks stale | Browser cache | Hard refresh; the field updates within seconds of real traffic |
 
 ## Extra
 
-<AccordionGroup>
-  <Accordion title="Auth still failing after you rotated keys" icon="key">
-    SDK clients cache JWTs until expiry. After you deploy a new `TEX_API_KEY`, restart workers or recreate the client so they stop presenting tokens minted from the old secret. Confirm you did not typo `https://api.getmetacognition.com` in staging configs.
-  </Accordion>
+### Auth still failing after you rotated keys
 
-  <Accordion title="You see hits but they feel unrelated" icon="magnifying-glass">
-    Recall ranks by relevance, not chronological order—set `include_timeline=True` when you need strict time order for the model. If overlap is still weak, your `session_id` might not match the one you wrote with—re-read [Scopes and multi-tenancy](/concepts/scopes).
-  </Accordion>
+SDK clients cache JWTs until expiry. After you deploy a new **`TEX_API_KEY`**, restart workers or recreate the client. That stops them from sending tokens created from the old key. Also confirm **`https://api.getmetacognition.com`** is spelled correctly in staging configs.
 
-  <Accordion title="Confidence swings between identical queries" icon="chart-line">
-    Small jitter can come from rerank tie-breaks keyed by hashes. If spread exceeds ~0.1, capture `request_id` and file a ticket—something else is going on.
-  </Accordion>
-</AccordionGroup>
+### You see hits but they feel unrelated
+
+Recall ranks by **relevance**, not chronological order. Set **`include_timeline=True`** when the model needs time order. If results still look wrong, check that you are using the same **`session_id`** for write and read. [Scopes and multi-tenancy](/concepts/scopes) explains the mapping.
+
+### Confidence swings between identical queries
+
+Small score changes can happen when candidates are close together. If the spread is bigger than **~0.1**, capture **`request_id`** and file a ticket.
 
 ## Filing a ticket
 
 <Steps>
   <Step title="Collect the request id">
-    Copy `e.request_id` from any SDK exception—UUID-shaped, safe to share.
+    Copy `e.request_id` from any SDK exception. It is safe to share.
   </Step>
   <Step title="Note the timestamp">
     Give us the approximate UTC time the call failed.
   </Step>
   <Step title="Describe the call">
-    Include the method (`recall`, `remember`, …), `session_id`, and whether you hit REST or the SDK.
+    Include the method (`recall`, `remember`, etc.), `session_id`, and whether you hit REST or the SDK.
   </Step>
   <Step title="Add version + redact secrets">
     Run `python -c "import tex; print(tex.__version__)"`. Scrub API keys or PII before you press send.
@@ -76,6 +74,6 @@ import tex; print(tex.__version__)
 
 ## Things that look like bugs but are not
 
-- **Hits sorted funny:** relevance ordering is intentional—use timeline mode when you need chronology.
-- **Empty cross-session recall:** sessions are isolated until you design a scope strategy—see [Scopes and multi-tenancy](/concepts/scopes).
+- **Hits are not chronological:** relevance ordering is intentional. Use timeline mode when you need chronology.
+- **Empty cross-session recall:** sessions are isolated until you design a scope strategy. See [Scopes and multi-tenancy](/concepts/scopes).
 - **Identical queries, tiny score deltas:** expect minor movement; large swings merit a ticket.
