@@ -1,10 +1,10 @@
 ---
-title: "Remember conversation"
-description: "Persist conversation turns into memory."
+title: "Ingest conversation memory"
+description: "Write turns under a scope. Active memory is saved first; enrichment continues in the background."
 api: "POST https://api.getmetacognition.com/ingestion/memory"
 ---
 
-The REST equivalent of `tex.conversations.remember(...)`. Active write completes synchronously; passive enrichment runs in the background.
+This is the REST version of **`tex.conversations.remember`**. Use it to write turns under a scope. Tex saves active memory first, then continues enrichment in the background.
 
 ## Headers
 
@@ -40,7 +40,7 @@ Content-Type: application/json
 ```
 
 <ParamField body="scope.org_id" type="string" required>
-  Your org id (≥ 1 char). Server uses the JWT's `org_id` claim for tenancy regardless — this field is required for Pydantic validation only.
+  Your org id. Minimum length is 1 character. The server still uses the JWT's `org_id` claim for tenancy; this field is required for request validation.
 </ParamField>
 
 <ParamField body="scope.user_id" type="string">
@@ -52,15 +52,15 @@ Content-Type: application/json
 </ParamField>
 
 <ParamField body="turns" type="array" required>
-  At least one turn (`min_length=1`). Each turn: `{role, text, timestamp, observations?}`. See [memory model](/concepts/memory-model).
+  At least one turn (`min_length=1`). Each turn: `{role, text, timestamp, observations?}`. See [How memory works](/concepts/memory-model).
 </ParamField>
 
 <ParamField body="options" type="object">
-  Optional dual-write toggles: `{ write_active: bool = true, write_passive: bool = true }`. Disabling either lets advanced callers bypass one of the storage tiers.
+  Optional write toggles: `{ write_active: bool = true, write_passive: bool = true }`. Advanced callers can disable one storage tier.
 </ParamField>
 
 <ParamField body="metadata" type="object">
-  Free-form metadata. **Currently stored but not surfaced** in retrieval — reserved for future filters.
+  Free-form metadata. It is stored today and reserved for future filters.
 </ParamField>
 
 ## Response — `202 Accepted`
@@ -70,7 +70,7 @@ Content-Type: application/json
 </ResponseField>
 
 <ResponseField name="active_fragment_ids" type="array[string]">
-  Active-memory fragment ids — already recallable.
+  Active-memory fragment ids. These are already recallable.
 </ResponseField>
 
 <ResponseField name="passive_job_id" type="string | null">
@@ -127,4 +127,4 @@ resp.raise_for_status()
 
 ## Idempotency
 
-Tex computes a stable hash per turn (`role + text + timestamp`). Re-sending the same turn is a no-op — no duplicate fragments, no double-billing. Safe to retry on network failure.
+Tex computes a stable hash per turn from `role`, `text`, and `timestamp`. Re-sending the same turn is a no-op. It does not create duplicate fragments or double bill the turn. It is safe to retry after a network failure.

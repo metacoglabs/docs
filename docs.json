@@ -1,0 +1,180 @@
+{
+  "$schema": "https://mintlify.com/docs.json",
+  "theme": "mint",
+  "name": "Tex | Memory API for agents",
+  "colors": {
+    "primary": "#F32C05",
+    "light": "#FF5530",
+    "dark": "#C82200"
+  },
+  "favicon": "/favicon.png",
+  "navigation": {
+    "anchors": [
+      {
+        "anchor": "Documentation",
+        "icon": "book-open",
+        "groups": [
+          {
+            "group": "Get started",
+            "pages": ["quickstart", "introduction", "authentication"]
+          },
+          {
+            "group": "Concepts",
+            "pages": [
+              {
+                "group": "Memory & retrieval",
+                "pages": ["concepts/memory-model", "concepts/retrieval"]
+              },
+              {
+                "group": "Tenancy & usage",
+                "pages": ["concepts/scopes", "concepts/usage-billing"]
+              }
+            ]
+          },
+          {
+            "group": "Cookbook",
+            "pages": [
+              {
+                "group": "Apps",
+                "pages": ["recipes/fastapi", "recipes/streamlit"]
+              },
+              {
+                "group": "Agents & channels",
+                "pages": ["recipes/langchain", "recipes/slack-bot"]
+              },
+              {
+                "group": "Production patterns",
+                "pages": ["recipes/azure-openai-rag", "recipes/multi-tenant-saas"]
+              }
+            ]
+          },
+          {
+            "group": "Evaluation",
+            "pages": ["benchmarks"]
+          },
+          {
+            "group": "Migration",
+            "pages": [
+              "migration/from-redis",
+              "migration/from-langchain-memory",
+              "migration/from-supermemory"
+            ]
+          },
+          {
+            "group": "Support",
+            "pages": ["troubleshooting", "changelog"]
+          }
+        ]
+      },
+      {
+        "anchor": "Python SDK",
+        "icon": "python",
+        "groups": [
+          {
+            "group": "Python SDK",
+            "pages": [
+              {
+                "group": "Setup",
+                "pages": ["sdk/installation", "sdk/client"]
+              },
+              {
+                "group": "Calls",
+                "pages": [
+                  "sdk/conversations-remember",
+                  "sdk/recall",
+                  "sdk/usage",
+                  "sdk/errors"
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "anchor": "REST API",
+        "icon": "code",
+        "groups": [
+          {
+            "group": "REST API",
+            "pages": [
+              "api-reference/overview",
+              {
+                "group": "Auth & sessions",
+                "pages": [
+                  "api-reference/auth/signup",
+                  "api-reference/auth/token-exchange",
+                  "api-reference/auth/refresh"
+                ]
+              },
+              {
+                "group": "Organization",
+                "pages": [
+                  "api-reference/account/me",
+                  "api-reference/account/api-keys"
+                ]
+              },
+              {
+                "group": "Memory",
+                "pages": [
+                  "api-reference/memory/ingest-memory",
+                  "api-reference/memory/recall"
+                ]
+              },
+              {
+                "group": "Usage",
+                "pages": [
+                  "api-reference/usage/today",
+                  "api-reference/usage/summary"
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "anchor": "GitHub",
+        "href": "https://github.com/metacoglabs",
+        "icon": "github"
+      }
+    ]
+  },
+  "logo": {
+    "light": "/logo/light.png",
+    "dark": "/logo/dark.png"
+  },
+  "background": {
+    "color": {
+      "light": "#FFFFFF",
+      "dark": "#0A0A0A"
+    }
+  },
+  "navbar": {
+    "links": [
+      {
+        "label": "Dashboard",
+        "href": "https://app.getmetacognition.com"
+      }
+    ],
+    "primary": {
+      "type": "button",
+      "label": "Get an API key",
+      "href": "https://app.getmetacognition.com/signup"
+    }
+  },
+  "footer": {
+    "socials": {
+      "github": "https://github.com/metacoglabs",
+      "linkedin": "https://www.linkedin.com/company/metacognition-ai"
+    }
+  },
+  "fonts": {
+    "heading": {
+      "family": "Geist",
+      "weight": 700
+    },
+    "body": {
+      "family": "Geist",
+      "weight": 400
+    }
+  }
+}

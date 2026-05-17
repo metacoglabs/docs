@@ -1,9 +1,9 @@
 ---
-title: "From Supermemory"
-description: "Migrate from Supermemory's SDK to Tex with minimal code changes."
+title: "Migrate from Supermemory"
+description: "Map Supermemory calls to Tex calls."
 ---
 
-The Tex Python SDK is **resource-shape compatible** with Supermemory for the verbs we both implement. If you're using `supermemory.add(...)`, `client.search(...)`, or `client.profile(...)`, the migration is mostly a pip install and a base-url swap.
+The Tex Python SDK keeps Supermemory-compatible calls for the verbs both SDKs support. If you use `supermemory.add(...)`, `client.search(...)`, or `client.profile(...)`, most of the migration is installing `tex-sdk` and changing the base URL.
 
 ## Drop-in compatibility
 
@@ -21,14 +21,14 @@ These calls work the same in Tex:
 | `client.documents.batch_add([...])` | `tex.documents.batch_add([...])` |
 
 <Note>
-  Tex's `search` is a **resource**, not a callable — `tex.search(q)` will raise `TypeError`. Use `tex.search.documents(q)` or `tex.search.memories(q)`. There's also a generic `tex.search.execute(q)` alias for `tex.search.documents(q)` if you want a single entry point.
+  Tex's `search` is a **resource**, not a callable. `tex.search(q)` raises `TypeError`. Use `tex.search.documents(q)` or `tex.search.memories(q)`. `tex.search.execute(q)` is also available as an alias for `tex.search.documents(q)`.
 </Note>
 
-Tex's `/v3/*` and `/v4/*` paths accept the **raw API key** as Bearer (no JWT exchange) for full Supermemory compatibility — the SDK routes them automatically.
+Tex's `/v3/*` and `/v4/*` paths accept the raw API key as Bearer for Supermemory compatibility. The SDK routes those calls automatically.
 
 ## Exclusive Tex features
 
-These are Tex-only verbs you can adopt incrementally:
+These Tex-only verbs can be adopted one at a time:
 
 | Verb | What it adds |
 | --- | --- |
@@ -60,15 +60,15 @@ These are Tex-only verbs you can adopt incrementally:
     Existing `add` / `search` / `profile` calls keep working unchanged.
   </Step>
   <Step title="Adopt Tex-native verbs (optional)">
-    Replace your conversation-history pattern with `tex.conversations.remember` + `tex.recall` for stronger temporal awareness and confidence scoring. See [memory model](/concepts/memory-model).
+    Replace your conversation-history pattern with `tex.conversations.remember` + `tex.recall` for stronger temporal awareness and confidence scoring. The mental model is in [How memory works](/concepts/memory-model).
   </Step>
 </Steps>
 
 ## Behavioral differences
 
-- **Auth.** Supermemory uses the API key as Bearer. Tex does the same on `/v3/*` and `/v4/*` (compat paths) but exchanges to JWT for Tex-native paths. The SDK handles both transparently.
-- **Retention.** Persistent on both. No "free tier expires" wipe on Tex — your memory stays until you delete it.
-- **Pricing.** Tex bills on `tokens_in` / `tokens_out`, not document count. Chatty workloads are usually cheaper; document-heavy ones — measure with `tex.usage.summary()` after a representative day.
+- **Auth.** Supermemory uses the API key as Bearer. Tex does the same on `/v3/*` and `/v4/*`, but exchanges to JWT for Tex-native paths. The SDK handles both.
+- **Retention.** Memory is persistent. Tex does not wipe free-tier memory on a timer. It stays until you delete it.
+- **Pricing.** Tex bills on `tokens_in` / `tokens_out`, not document count. For document-heavy workloads, measure with `tex.usage.summary()` after a representative day.
 - **Profiles.** Tex's `profile` aggregates over `container_tag` like Supermemory's. Backfill works without changes.
 
 If you hit a Supermemory verb that doesn't behave identically, file an issue.

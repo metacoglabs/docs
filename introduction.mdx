@@ -1,35 +1,53 @@
 ---
-title: "Introduction"
-description: "#1 on every major long-term memory benchmark. 93.3% on LoCoMo. 92.2% on LongMemEval_S. Sub-200ms retrieval. Zero LLM tokens during ingestion."
+title: "Overview - What is Tex?"
+description: "Long-term memory for assistants and agents. Store turns, recall the useful ones, and keep prompts small."
+icon: "book-open"
 ---
 
-Tex is the memory layer for AI agents — and the state of the art on every long-term memory benchmark we know of. Stream conversation turns to it; pull back the relevant slice on every new request. Bounded prompts, cross-session continuity, no Redis to babysit.
+<Info>
+  New here? Start with the [Quickstart](/quickstart). Then read this overview and [Authentication](/authentication) before you ship.
+</Info>
+
+Most chat apps make you choose between two bad options. You either send the whole chat history to the model, or you lose memory when the page refreshes.
+
+Tex gives you a simpler path. Store each turn as it happens. When the user asks the next question, ask Tex for the few memories that matter. Then call your model with that smaller context.
+
+Your app still runs the model, routes, and UI. Tex handles storage, search, ranking, and usage tracking.
+
+## API
+
+| Call | When |
+| --- | --- |
+| **`remember`** | Store new turns, plus optional metadata. |
+| **`recall`** | Before you call the model, ask for the most relevant memories. |
+
+<Callout icon="key" iconType="regular">
+  Need access? Create an account in the [dashboard](https://app.getmetacognition.com/signup), copy the API key once, then follow the [Quickstart](/quickstart). Locally, set `TEX_API_KEY` or pass `api_key=` to the client.
+</Callout>
+
+## Start
 
 <CardGroup cols={2}>
   <Card title="Quickstart" icon="rocket" href="/quickstart" horizontal>
-    First call in 5 minutes.
+    Install `tex-sdk`, store one turn, recall it, and print the score.
   </Card>
-  <Card title="Get an API key" icon="key" href="https://app.getmetacognition.com/signup" horizontal>
-    Sign up at the dashboard.
+  <Card title="Benchmarks" icon="chart-line" href="/benchmarks" horizontal>
+    LoCoMo and LongMemEval_S results with splits, latency, and token counts.
   </Card>
 </CardGroup>
 
-## Best in class
+## Benchmarks
 
 <CardGroup cols={2}>
   <Card title="LoCoMo · 93.3%" icon="trophy">
-    **#1.** Beats EverMemOS (92.3%), MemMachine (91.7%), Zep (~85%), Mem0 (~66%).
+    Full-system benchmark. Tex is ahead of EverMemOS (**92.3%**), MemMachine v0.2 (**91.7%**), Zep (**~85%**), and Mem0 (**~66%**). See [Benchmarks](/benchmarks) for splits and methodology.
   </Card>
   <Card title="LongMemEval_S · 92.2%" icon="trophy">
-    **#1.** Beats Emergence AI (86%), Supermemory (81.6%), Oracle GPT-4o (82.4%).
+    Active retrieval track. Tex is ahead of Emergence AI (**86.0%**), Supermemory (**81.6%**), and Zep (**71.2%**). See [Benchmarks](/benchmarks) for per-ability tables.
   </Card>
 </CardGroup>
 
-<Card title="Full benchmark report →" icon="chart-line" href="/benchmarks" horizontal>
-  Per-category breakdowns. Latency. Token efficiency. Ablations.
-</Card>
-
-## The loop
+## Loop
 
 <Steps>
   <Step title="Remember">
@@ -46,37 +64,45 @@ Tex is the memory layer for AI agents — and the state of the art on every long
     ```
   </Step>
   <Step title="Generate">
-    Drop `context` into your system prompt. Reply. Persist the new turns. Loop.
+    Put `context` where your model reads it. Answer the user. Store the new turns.
   </Step>
 </Steps>
 
-## Concepts
+<Tip>
+  Low `confidence` at the start usually means the session has very little memory. Store more real turns and the score becomes more useful.
+</Tip>
+
+## More
+
+### Latency: active write vs background work
+
+The fast part of **`remember`** returns quickly. New turns are usually recallable within about **150 ms**. Tex then continues background work, such as observations, entities, and timeline updates. The diagrams and timing notes are in [How memory works](/concepts/memory-model).
+
+### Isolation between customers
+
+Use **`org_id`**, **`user_id`**, and **`session_id`** to keep memory separated. [Scopes and multi-tenancy](/concepts/scopes) shows how to map those fields to your users and tenants.
+
+### Python vs raw HTTP
+
+Use the [Python SDK](/sdk/installation) if you want token exchange and refresh handled for you. Use the [REST API](/api-reference/overview) from another language, or when your service already owns HTTP calls.
+
+### Quotas and billing
+
+Tex meters `tokens_in` and `tokens_out` with daily caps. [Usage, quotas, and billing](/concepts/usage-billing) explains what counts and when limits reset.
+
+## Docs
 
 <CardGroup cols={2}>
   <Card title="How memory works" icon="brain" href="/concepts/memory-model">
-    Turns, observations, entities — what we store and why.
+    What lands in storage after `remember`.
   </Card>
   <Card title="Recall and ranking" icon="magnifying-glass" href="/concepts/retrieval">
-    Active vs deep modes. Confidence calibration.
+    Modes, `top_k`, confidence.
   </Card>
-  <Card title="Multi-user memory" icon="layer-group" href="/concepts/scopes">
-    Org / user / session — multi-tenant in two lines.
-  </Card>
-  <Card title="Usage and billing" icon="receipt" href="/concepts/usage-billing">
-    Tokens in / out. Quota. Cost control.
-  </Card>
-</CardGroup>
-
-## Build with it
-
-<CardGroup cols={3}>
   <Card title="Python SDK" icon="python" href="/sdk/installation">
-    `pip install tex-sdk`
-  </Card>
-  <Card title="REST API" icon="code" href="/api-reference/overview">
-    Direct HTTP, any language.
+    Install and client setup.
   </Card>
   <Card title="Cookbook" icon="book-open" href="/recipes/fastapi">
-    Chatbot · agent · Slack · Streamlit
+    Apps, agents, production patterns.
   </Card>
 </CardGroup>

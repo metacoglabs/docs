@@ -1,20 +1,138 @@
 ---
-title: "Chatbot backend (FastAPI)"
-description: "Drop-in chatbot backend with Tex memory."
+title: "Production chatbot (FastAPI)"
+description: "Build a FastAPI chat route that recalls memory, calls your model, and stores the new turn."
+icon: "server"
 ---
 
-Chatbot backend in ~40 lines. One Tex client per process; memory recall on every turn.
+This recipe puts the quickstart loop behind one HTTP route:
+
+1. Recall memory for the incoming message.
+2. Call your model.
+3. Store the user and assistant turns.
+
+Create one **`Tex`** client per process and reuse it across requests.
 
 ## Layout
 
-```text
-app/
-├── deps.py        # Tex singleton
-├── main.py        # FastAPI app
-└── chat.py        # /chat endpoint
-```
+| File | Job |
+| --- | --- |
+| `deps.py` | Cached Tex |
+| `chat.py` | `/chat` |
+| `main.py` | App entry |
 
-## Code
+<Steps>
+  <Step title="Lay out the package">
+    Create this structure:
+
+    ```text
+    app/
+    ├── deps.py        # cached Tex client
+    ├── main.py        # FastAPI entry
+    └── chat.py        # /chat route
+    ```
+
+    Rename `app/` if you want. Keep the import paths consistent in `uvicorn`.
+  </Step>
+
+  <Step title="Cache your Tex client">
+    Read secrets from the environment and construct Tex **once**:
+
+    ```python deps.py
+    from functools import cache
+    from tex import Tex
+    import os
+
+    @cache
+    def tex_client() -> Tex:
+        return Tex(
+            api_key=os.environ["TEX_API_KEY"],
+            base_url=os.environ.get(
+                "TEX_BASE_URL", "https://api.getmetacognition.com"
+            ),
+            timeout=10,
+        )
+    ```
+
+    Use `tex_client()` inside FastAPI `Depends(...)` so every route shares the same connection pool.
+  </Step>
+
+  <Step title="Build the chat route">
+    Derive `session_id` from the user and the chat. Recall with a small `top_k`. If Tex times out or quota is exhausted, answer without memory. Then store both sides of the turn:
+
+    ```python chat.py
+    from datetime import datetime, timezone
+    from fastapi import APIRouter, Depends, Header
+    from pydantic import BaseModel
+    from tex import Tex, RateLimitError, APITimeoutError
+    from .deps import tex_client
+
+    router = APIRouter()
+
+    def now_iso() -> str:
+        return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+    class ChatBody(BaseModel):
+        text: str
+        session_id: str
+
+    @router.post("/chat")
+    def chat(
+        body: ChatBody,
+        x_user_id: str = Header(...),
+        tex: Tex = Depends(tex_client),
+    ):
+        sid = f"u_{x_user_id}-{body.session_id}"
+
+        memory: list[str] = []
+        try:
+            hits = tex.recall(q=body.text, session_id=sid, top_k=5)
+            memory = [h.text for h in hits.hits.turns]
+        except (RateLimitError, APITimeoutError):
+            memory = []
+
+        answer = your_llm.complete(body.text, memory=memory)
+
+        tex.conversations.remember(
+            session_id=sid,
+            turns=[
+                {"role": "user", "text": body.text, "timestamp": now_iso()},
+                {"role": "assistant", "text": answer, "timestamp": now_iso()},
+            ],
+        )
+
+        return {"answer": answer}
+    ```
+
+    Replace `your_llm.complete(...)` with your model call.
+  </Step>
+
+  <Step title="Expose the app">
+    Mount the router once:
+
+    ```python main.py
+    from fastapi import FastAPI
+    from .chat import router
+
+    app = FastAPI()
+    app.include_router(router)
+    ```
+  </Step>
+
+  <Step title="Run locally">
+    Export your key and launch uvicorn:
+
+    ```bash
+    export TEX_API_KEY=tex_live_...
+    uvicorn app.main:app --reload
+    ```
+
+    Send `POST /chat` with JSON `{"text":"...","session_id":"..."}` and header `x-user-id`.
+  </Step>
+</Steps>
+
+## Full files
+
+If you prefer one copy block, paste these files:
 
 <CodeGroup>
 ```python deps.py
@@ -58,7 +176,6 @@ def chat(
 ):
     sid = f"u_{x_user_id}-{body.session_id}"
 
-    # 1. Recall — gracefully degrade on timeout/quota
     memory: list[str] = []
     try:
         hits = tex.recall(q=body.text, session_id=sid, top_k=5)
@@ -66,10 +183,8 @@ def chat(
     except (RateLimitError, APITimeoutError):
         memory = []
 
-    # 2. Generate — your LLM of choice
     answer = your_llm.complete(body.text, memory=memory)
 
-    # 3. Remember (fire and forget — see notes)
     tex.conversations.remember(session_id=sid, turns=[
         {"role": "user",      "text": body.text, "timestamp": now_iso()},
         {"role": "assistant", "text": answer,    "timestamp": now_iso()},
@@ -87,31 +202,36 @@ app.include_router(router)
 ```
 </CodeGroup>
 
-## Run
-
-```bash
-export TEX_API_KEY=tex_live_...
-uvicorn app.main:app --reload
-```
-
 ## Production tweaks
 
-**Push `remember` to a background task.** Holding the request open for the write adds 100–250ms to tail latency:
+### Run `remember` in the background
+
+Do not make the user wait for **`remember`**. Enqueue it in the background:
 
 ```python
 from fastapi import BackgroundTasks
 
 @router.post("/chat")
-def chat(body: ChatBody, bg: BackgroundTasks, tex: Tex = Depends(tex_client)):
-    ...
-    bg.add_task(tex.conversations.remember,
-                session_id=sid, turns=[user_turn, assistant_turn])
+def chat(
+    body: ChatBody,
+    bg: BackgroundTasks,
+    x_user_id: str = Header(...),
+    tex: Tex = Depends(tex_client),
+):
+    # ... recall + answer ...
+    bg.add_task(
+        tex.conversations.remember,
+        session_id=sid,
+        turns=[user_turn, assistant_turn],
+    )
     return {"answer": answer}
 ```
 
-**Bound recall latency** with `Tex(timeout=2.0)`; catch `APITimeoutError` and degrade to no-memory generation.
+### Bound recall latency
 
-**Health check:**
+Set **`Tex(timeout=2.0)`** and catch **`APITimeoutError`**. If recall is slow, answer without memory instead of blocking the whole chat request.
+
+### Add a health probe
 
 ```python
 @app.get("/healthz")

@@ -1,80 +1,97 @@
 ---
-title: "Slack channel memory"
-description: "Channel-scoped memory for a Slack workspace."
+title: "Slack bot with channel memory"
+description: "Build a Slack Bolt app that remembers channel messages and answers mentions with Tex recall."
+icon: "hashtag"
 ---
 
-A Slack bot that remembers everything said in each channel and answers contextual questions when summoned.
+Give each Slack channel its own Tex **`session_id`**. Save normal messages with **`remember`**. When someone mentions the bot, use **`recall`** to answer from that channel's memory.
 
-## Install
+This uses the same isolation pattern as [Scopes and multi-tenancy](/concepts/scopes).
 
-```bash
-pip install tex-sdk slack-bolt python-dotenv
-```
+<Steps>
+  <Step title="Install Bolt + Tex">
+    ```bash
+    pip install tex-sdk slack-bolt python-dotenv
+    ```
+  </Step>
 
-## Environment
+  <Step title="Export tokens">
+    Load the bot and app tokens. This example uses socket mode:
 
-```bash
-SLACK_BOT_TOKEN=xoxb-...
-SLACK_APP_TOKEN=xapp-...        # if using socket mode
-TEX_API_KEY=tex_live_...
-TEX_BASE_URL=https://api.getmetacognition.com
-```
+    ```bash
+    SLACK_BOT_TOKEN=xoxb-...
+    SLACK_APP_TOKEN=xapp-...
+    TEX_API_KEY=tex_live_...
+    TEX_BASE_URL=https://api.getmetacognition.com
+    ```
+  </Step>
 
-## Code
+  <Step title="Wire Slack events">
+    Ignore bot messages, remember human text, and answer mentions with recall:
 
-```python bot.py
-import os
-from datetime import datetime, timezone
-from slack_bolt import App
-from slack_bolt.adapter.socket_mode import SocketModeHandler
-from tex import Tex
+    ```python bot.py
+    import os
+    from datetime import datetime, timezone
+    from slack_bolt import App
+    from slack_bolt.adapter.socket_mode import SocketModeHandler
+    from tex import Tex
 
-tex = Tex(api_key=os.environ["TEX_API_KEY"], base_url=os.environ["TEX_BASE_URL"])
-app = App(token=os.environ["SLACK_BOT_TOKEN"])
+    tex = Tex(api_key=os.environ["TEX_API_KEY"], base_url=os.environ["TEX_BASE_URL"])
+    app = App(token=os.environ["SLACK_BOT_TOKEN"])
 
-def now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    def now_iso() -> str:
+        return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
-def session_for(channel: str) -> str:
-    return f"slack-{channel}"
+    def session_for(channel: str) -> str:
+        return f"slack-{channel}"
 
-@app.event("message")
-def remember_message(event, say):
-    """Remember every non-bot message in the channel."""
-    if event.get("subtype") or event.get("bot_id"):
-        return
-    tex.conversations.remember(
-        session_id=session_for(event["channel"]),
-        turns=[{
-            "role": "user",
-            "text": f"<@{event['user']}>: {event['text']}",
-            "timestamp": now_iso(),
-        }],
-    )
+    @app.event("message")
+    def remember_message(event, say):
+        if event.get("subtype") or event.get("bot_id"):
+            return
+        tex.conversations.remember(
+            session_id=session_for(event["channel"]),
+            turns=[{
+                "role": "user",
+                "text": f"<@{event['user']}>: {event['text']}",
+                "timestamp": now_iso(),
+            }],
+        )
 
-@app.event("app_mention")
-def answer(event, say):
-    """When mentioned, answer with channel-scoped memory."""
-    query = event["text"].split(">", 1)[-1].strip()
-    if not query:
-        say("Ask me something — I'll dig through this channel's memory.")
-        return
+    @app.event("app_mention")
+    def answer(event, say):
+        query = event["text"].split(">", 1)[-1].strip()
+        if not query:
+            say("Ask me something and I'll search this channel's memory.")
+            return
 
-    hits = tex.recall(q=query, session_id=session_for(event["channel"]), top_k=5)
+        hits = tex.recall(q=query, session_id=session_for(event["channel"]), top_k=5)
 
-    if not hits.hits.turns or hits.confidence < 0.2:
-        say(f"<@{event['user']}> I don't have anything relevant in memory yet.")
-        return
+        if not hits.hits.turns or hits.confidence < 0.2:
+            say(f"<@{event['user']}> I don't have anything relevant in memory yet.")
+            return
 
-    body = "\n".join(f"• {h.text}" for h in hits.hits.turns[:3])
-    say(f"<@{event['user']}> here's what I remember:\n{body}")
+        body = "\n".join(f"• {h.text}" for h in hits.hits.turns[:3])
+        say(f"<@{event['user']}> here's what I remember:\n{body}")
 
-if __name__ == "__main__":
-    SocketModeHandler(app, os.environ["SLACK_APP_TOKEN"]).start()
-```
+    if __name__ == "__main__":
+        SocketModeHandler(app, os.environ["SLACK_APP_TOKEN"]).start()
+    ```
+  </Step>
 
-## Patterns
+  <Step title="Run the bot">
+    ```bash
+    python bot.py
+    ```
 
-- **Channel vs DM memory.** `slack-{channel}` shares memory across everyone in the channel. For private notes use `slack-{channel}-{user}`.
-- **Skip noisy messages.** Filter joins, leaves, uploads, and reactions before `remember`. Saves tokens and reduces recall noise.
-- **Acknowledge slow recalls.** `recall` takes 1–3s. React with `:thinking_face:` immediately, then post the answer.
+    Type in a channel, then ask `@YourBot what did we decide?` to verify recall.
+  </Step>
+</Steps>
+
+## Slack tweaks
+
+| Topic | What you do |
+| --- | --- |
+| **Channel vs DM** | You keep `slack-{channel}` for shared rooms; you append `-{user}` if you need private scratch space. |
+| **Noise** | You filter joins, uploads, reactions **before** `remember` so you do not pay tokens for junk. |
+| **Latency** | React with `:thinking_face:` right away. `recall` can take 1-3s. Post the final answer after recall finishes. |

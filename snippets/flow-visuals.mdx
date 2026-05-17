@@ -1,0 +1,116 @@
+export const PipelineFlow = ({ steps, caption }) => (
+  <div className="not-prose my-6">
+    <figure className="rounded-xl border border-zinc-950/15 bg-zinc-950/[0.02] p-4 dark:border-white/15 dark:bg-white/[0.04]">
+      {caption && (
+        <figcaption className="mb-3 text-sm font-semibold text-zinc-900 dark:text-zinc-100">
+          {caption}
+        </figcaption>
+      )}
+      <div className="mx-auto flex max-w-xl flex-col" role="list">
+        {steps.map((step, i) => (
+          <div key={step.id} className="flex flex-col items-stretch">
+            <div
+              className="flex w-full flex-col rounded-lg border border-[#F32C05]/40 bg-[#F32C05]/10 p-3 dark:border-[#FF5530]/45 dark:bg-[#F32C05]/15"
+              role="listitem"
+              aria-label={`${step.id}: ${step.label}`}
+            >
+              {step.phase && (
+                <div className="text-[10px] font-semibold uppercase tracking-wide text-zinc-600 opacity-80 dark:text-zinc-400">
+                  {step.phase}
+                </div>
+              )}
+              <div className="mt-1.5 text-sm font-semibold text-zinc-900 dark:text-zinc-50">{step.label}</div>
+              {step.hint && (
+                <div className="mt-2 text-xs leading-snug text-zinc-600 dark:text-zinc-400">{step.hint}</div>
+              )}
+            </div>
+            {i < steps.length - 1 && (
+              <div
+                className="flex h-8 shrink-0 items-center justify-center text-sm font-medium text-zinc-400 dark:text-zinc-500"
+                aria-hidden
+              >
+                ↓
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+    </figure>
+  </div>
+);
+
+export const AuthSequence = ({ phases }) => (
+  <div className="not-prose my-6">
+    <figure className="rounded-xl border border-zinc-950/15 bg-zinc-950/[0.02] p-4 dark:border-white/15 dark:bg-white/[0.04]">
+      <div className="flex flex-col gap-3">
+        {phases.map((p, i) => (
+          <div
+            key={p.id}
+            className="grid grid-cols-[28px_1fr] items-start gap-3"
+          >
+            <div
+              className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-[#F32C05]/45 bg-[#F32C05]/15 text-xs font-bold text-zinc-900 dark:border-[#FF5530]/50 dark:bg-[#F32C05]/20 dark:text-zinc-50"
+            >
+              {i + 1}
+            </div>
+            <div className="min-w-0">
+              <div className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">{p.title}</div>
+              <div className="mt-1.5 text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">
+                {p.detail}
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </figure>
+  </div>
+);
+
+export const TokenRetryVisual = () => (
+  <div className="not-prose my-6">
+    <figure className="rounded-xl border border-zinc-950/15 bg-zinc-950/[0.02] p-4 dark:border-white/15 dark:bg-white/[0.04]">
+      <div className="flex flex-col gap-2.5">
+        <div className="max-w-full rounded-lg border border-[#F32C05]/40 bg-[#F32C05]/10 p-3 dark:border-[#FF5530]/45 dark:bg-[#F32C05]/15">
+          <div className="text-[10px] font-semibold uppercase tracking-wide text-zinc-600 dark:text-zinc-400">
+            Start
+          </div>
+          <div className="mt-1.5 text-sm font-semibold text-zinc-900 dark:text-zinc-50">
+            A normal request comes back 401
+          </div>
+          <div className="mt-2 text-xs leading-snug text-zinc-600 dark:text-zinc-400">
+            Usually the access token expired; refresh might still work.
+          </div>
+        </div>
+        <div className="text-center text-sm text-zinc-400 dark:text-zinc-500">↓</div>
+        <div className="max-w-full rounded-lg border border-[#F32C05]/40 bg-[#F32C05]/10 p-3 dark:border-[#FF5530]/45 dark:bg-[#F32C05]/15">
+          <div className="text-[10px] font-semibold uppercase tracking-wide text-zinc-600 dark:text-zinc-400">
+            First try
+          </div>
+          <div className="mt-1.5 text-sm font-semibold text-zinc-900 dark:text-zinc-50">POST /auth/refresh</div>
+          <div className="mt-2 text-xs leading-snug text-zinc-600 dark:text-zinc-400">
+            If that returns 200, you get a new access token and retry what you were doing.
+          </div>
+        </div>
+        <div className="text-center text-sm text-zinc-400 dark:text-zinc-500">
+          ↓ if refresh is also 401
+        </div>
+        <div className="max-w-full rounded-lg border border-[#F32C05]/40 bg-[#F32C05]/10 p-3 dark:border-[#FF5530]/45 dark:bg-[#F32C05]/15">
+          <div className="text-[10px] font-semibold uppercase tracking-wide text-zinc-600 dark:text-zinc-400">
+            Fallback
+          </div>
+          <div className="mt-1.5 text-sm font-semibold text-zinc-900 dark:text-zinc-50">
+            POST /auth/token-exchange
+          </div>
+          <div className="mt-2 text-xs leading-snug text-zinc-600 dark:text-zinc-400">
+            Send your API key again. 200 means retry with the new token. 401 means the key is dead and you need a new
+            one or a proper login flow.
+          </div>
+        </div>
+      </div>
+      <p className="mb-0 mt-3.5 text-xs leading-relaxed text-zinc-600 dark:text-zinc-400">
+        In most SDK setups a single failed request can walk through refresh (and then exchange) before your code
+        returns an error unless the full chain returns 401.
+      </p>
+    </figure>
+  </div>
+);

@@ -1,42 +1,54 @@
 ---
 title: "Recall and ranking"
-description: "Active vs deep, top_k tuning, confidence gating."
+description: "Choose active or deep recall, set top_k, and decide when confidence is strong enough."
+icon: "magnifying-glass"
 ---
 
-`tex.recall(q, session_id, ...)` is your read path.
+[How memory works](/concepts/memory-model) explains what Tex stores. This page explains how to choose what comes back.
+
+Use **`mode="active"`** for chat and copilots. Use **`mode="deep"`** when the user can wait longer, or when active recall is not finding enough.
+
+Use **`top_k`** to choose how many hits you give the model. Smaller values keep prompts tight. Larger values help summaries, digests, and long answers. Since hits count toward **`tokens_out`**, this also affects cost.
+
+If **`confidence`** stays under about **0.3**, do not force the memory into the prompt. Try **`mode="deep"`** once, raise **`top_k`**, or ask a clearer **`q`**.
+
+Python uses **`tex.recall(q, session_id, ...)`**. HTTP uses **`POST /recall`** with the same ideas. The REST field list is in [Recall memory](/api-reference/memory/recall).
 
 ## Modes
 
-<CardGroup cols={2}>
-  <Card title="active (default)" icon="bolt">
-    Single-pass. **1.5–2.5s.** Use for every interactive call.
-  </Card>
-  <Card title="deep" icon="diagram-project">
-    Two-pass with iterative rerank. **3–6s.** For periodic analysis or low-confidence retries.
-  </Card>
-</CardGroup>
+### `active` (default)
+
+- **Best for:** Chat, copilots, and live user flows.
+- **Rough latency:** about **1.5-2.5 s** end-to-end in typical setups.
+- **Behavior:** Single-pass retrieval and ranking.
+
+### `deep`
+
+- **Best for:** Offline jobs, decision reviews, or a second pass after weak `active` results.
+- **Rough latency:** about **3-6 s**.
+- **Behavior:** Two-pass with heavier reranking.
 
 ## `top_k`
 
-Defaults: **15** (active) / **25** (deep). Server caps at **30** regardless of what you send.
+Defaults: **15** (`active`) / **25** (`deep`). The server caps at **30** no matter what you send.
 
-| Use case | `top_k` |
+| Situation | Starting `top_k` |
 | --- | --- |
-| Live chat, small context | 3–5 |
-| Live chat, large context | 8–15 |
-| Summaries / digests | 20–30 |
+| Tight assistant prompt | 3-5 |
+| Standard chat with citations | 8-15 |
+| Summaries or long answers | 20-30 |
 
-Larger `top_k` = more `tokens_out` billed.
+Larger `top_k` directly increases **`tokens_out`** on your bill. How that maps to quota is in [Usage, quotas, and billing](/concepts/usage-billing).
 
 ## Confidence
 
-Every recall returns a `confidence ∈ [0, 1]`, calibrated so `P(hits relevant | c) ≈ c`.
+Every recall returns **`confidence` in [0, 1]**, calibrated so that roughly **`P(relevant hits | confidence) ≈ confidence`**.
 
-| Range | Meaning | Action |
+| Range | How to read it | Practical move |
 | --- | --- | --- |
-| ≥ 0.6 | Strong | Use as-is |
-| 0.3 – 0.6 | Useful but uncertain | Use, cite the sources |
-| < 0.3 | Weak | Try `mode="deep"`, or skip memory |
+| **≥ 0.6** | Strong | Pass context to the model as-is. |
+| **0.3 - 0.6** | Mixed | Use hits, but cite or summarize sources for the user. |
+| **< 0.3** | Weak | Try `mode="deep"`, rephrase `q`, or skip memory for this turn. |
 
 ```python
 hits = tex.recall(q=q, session_id=sid)
@@ -44,25 +56,27 @@ if hits.confidence < 0.3:
     hits = tex.recall(q=q, session_id=sid, mode="deep")
 ```
 
-## What's in a hit
+## Hit fields
 
 ```python
 RecallHit(id, text, score, kind, timestamp)        # turns + observations
 RecallEntity(id, label, score)                     # entities
 ```
 
-`hits.hits.turns` is what you stuff into a system prompt. `hits.hits.observations` are atomic facts. `hits.hits.entities` are linked things — useful for analytical queries.
+- **`hits.hits.turns`** - use these for most prompts.
+- **`hits.hits.observations`** - small facts extracted from prior turns.
+- **`hits.hits.entities`** - people, places, and organizations that help with "who", "what", and "where" questions.
 
-## Timeline
+## Timeline string
 
 ```python
 hits = tex.recall(q="when did we discuss pricing?",
                   session_id=sid, include_timeline=True)
-print(hits.timeline)   # a pre-rendered chronological summary string
+print(hits.timeline)   # optional pre-rendered string
 ```
 
-`timeline` is an `Optional[str]` — drop it into a prompt as-is. It's not iterable.
+`timeline` is an **`Optional[str]`**: either drop it straight into a prompt or ignore it. It is not a list you iterate.
 
-<Card title="Next: usage and billing" icon="receipt" href="/concepts/usage-billing" horizontal>
-  Tokens in / out and quota.
+<Card title="Next: usage, quotas, and billing" icon="receipt" href="/concepts/usage-billing" horizontal>
+  How recall choices affect `tokens_in` / `tokens_out`.
 </Card>

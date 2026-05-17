@@ -1,7 +1,12 @@
 ---
-title: "Recall"
-description: "Pull the most relevant slice of memory for a query."
+title: "Recall relevant context"
+description: "Query memory with natural language and get ranked hits, confidence, and usage."
+icon: "magnifying-glass"
 ---
+
+Use **`tex.recall`** before you call your model. It returns the memory that best matches the current user message.
+
+For **`mode`**, **`top_k`**, and **`confidence`**, read [Recall and ranking](/concepts/retrieval). This page lists the Python fields.
 
 ```python
 RecallResponse = tex.recall(
@@ -15,29 +20,29 @@ RecallResponse = tex.recall(
 ```
 
 <Note>
-  `recall` is callable on the client itself: `tex.recall(...)`. There's no `tex.recall.search(...)` indirection.
+  Call recall directly on the client: `tex.recall(...)`. There is no `tex.recall.search(...)`.
 </Note>
 
 ## Parameters
 
 <ParamField path="q" type="str" required>
-  Natural-language query. Same shape as the user's most recent turn works well.
+  Natural-language query. The user's latest message usually works well.
 </ParamField>
 
 <ParamField path="session_id" type="str" required>
-  Which session(s) to search. Use the same `session_id` you wrote with.
+  Session to search. Use the same `session_id` you wrote with.
 </ParamField>
 
 <ParamField path="mode" type='"active" | "deep"' default='"active"'>
-  Retrieval depth. See [Retrieval](/concepts/retrieval).
+  Retrieval depth. See [Recall and ranking](/concepts/retrieval).
 </ParamField>
 
 <ParamField path="top_k" type="int">
-  Number of hits across all kinds. Defaults to **15** in `active` mode, **25** in `deep` mode. Server caps at **30** regardless of the value you send.
+  Number of hits across all kinds. Defaults to **15** in `active` mode and **25** in `deep` mode. The server caps the final value at **30**.
 </ParamField>
 
 <ParamField path="include_timeline" type="bool" default="false">
-  Adds a chronological list of relevant events to the response.
+  When true, the response includes a pre-rendered **`timeline`** string (not a structured list).
 </ParamField>
 
 ## Returns
@@ -47,15 +52,15 @@ RecallResponse = tex.recall(
 </ResponseField>
 
 <ResponseField name="hits.observations" type="list[RecallHit]">
-  Atomic facts extracted from past turns (e.g. preferences, decisions).
+  Small facts extracted from past turns, such as preferences or decisions.
 </ResponseField>
 
 <ResponseField name="hits.entities" type="list[RecallEntity]">
-  People / places / things linked across observations.
+  People, places, and things linked across observations.
 </ResponseField>
 
 <ResponseField name="confidence" type="float">
-  Calibrated confidence in [0, 1]. P(hits relevant | confidence = c) ≈ c.
+  Calibrated confidence in [0, 1]. Higher means the returned memory is more likely to help.
 </ResponseField>
 
 <ResponseField name="timeline" type="str | None">
@@ -70,29 +75,29 @@ RecallResponse = tex.recall(
   `tokens_in` / `tokens_out` billed for this call. Always present in production.
 </ResponseField>
 
-### `RecallHit` shape (turns / observations)
+### `RecallHit` fields (turns / observations)
 
 ```python
 @dataclass(frozen=True)
 class RecallHit:
     id: str | None      # stable; persists across recalls
     text: str           # matched content
-    score: float        # raw relevance, 0.0–1.0
-    kind: str           # "turn" | "observation" | "entity" — defaults to "turn"
+    score: float        # raw relevance, 0.0-1.0
+    kind: str           # "turn" | "observation" | "entity"; defaults to "turn"
     timestamp: str | None
 ```
 
-### `RecallEntity` shape (entities only)
+### `RecallEntity` fields (entities only)
 
 ```python
 @dataclass(frozen=True)
 class RecallEntity:
     id: str | None
-    label: str          # the entity's surface label (e.g. "Acme")
+    label: str          # the entity label (e.g. "Acme")
     score: float
 ```
 
-`RecallEntity` is **not** the same shape as `RecallHit` — it has `label` instead of `text` and no `kind` / `timestamp`.
+`RecallEntity` is **not** the same as `RecallHit`. It has `label` instead of `text`, and it does not have `kind` or `timestamp`.
 
 ## Examples
 
@@ -134,7 +139,7 @@ if hits.timeline:
     print(hits.timeline)   # a pre-rendered chronological summary string
 ```
 
-`timeline` is a free-form string that the server pre-renders by walking the temporal index for matched turns. Treat it as a paragraph to drop into a prompt, not a structured array.
+`timeline` is a free-form string. Drop it into a prompt as text. Do not treat it like an array.
 
 ### Multi-source recall
 
@@ -154,7 +159,7 @@ context = "\n".join(f"- {h.text}" for h in (bio.hits.turns + chat.hits.turns))
 | `active` | 1.7s | 2.5s | Every interactive call |
 | `deep` | 3.5s | 6s | Periodic analysis, low-confidence retries |
 
-Set `timeout=2.0` on the constructor for interactive paths to bound your tail latency. Catch `APITimeoutError` and degrade gracefully:
+Set `timeout=2.0` on the constructor for interactive paths. Catch `APITimeoutError` and continue without memory:
 
 ```python
 try:

@@ -21,8 +21,8 @@ Open http://localhost:3000.
 ## Edit
 
 - Page content lives in `*.mdx` files.
-- Navigation is configured in [`mint.json`](./mint.json).
-- Add a new page by creating the `.mdx` file and listing it under the right group in `mint.json`.
+- Navigation is configured in [`docs.json`](./docs.json).
+- Add a new page by creating the `.mdx` file and listing it under the right group in `docs.json`.
 
 ## Deploy
 

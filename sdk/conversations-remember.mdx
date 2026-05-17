@@ -1,7 +1,10 @@
 ---
-title: "Remember"
-description: "Persist conversation turns to memory."
+title: "Remember conversation turns"
+description: "Store turns in a session, with optional observations and metadata."
+icon: "pen-to-square"
 ---
+
+Use **`tex.conversations.remember`** to store new conversation turns. This is the write side of the loop from the [Quickstart](/quickstart).
 
 ```python
 RememberResponse = tex.conversations.remember(
@@ -15,7 +18,7 @@ RememberResponse = tex.conversations.remember(
 ## Parameters
 
 <ParamField path="turns" type="list[dict]" required>
-  A list of turn dicts. **At least one turn is required** (server rejects empty lists with `422`). Each turn:
+  List of turn dicts. **At least one turn is required**. Empty lists return `422`. Each turn:
 
   ```python
   {
@@ -32,17 +35,17 @@ RememberResponse = tex.conversations.remember(
 </ParamField>
 
 <ParamField path="metadata" type="dict | None">
-  Free-form metadata attached to the batch. Searchable in deep mode.
+  Free-form metadata attached to the batch. Deep mode can use it during search.
 </ParamField>
 
 ## Returns
 
 <ResponseField name="job_id" type="str | None">
-  Stable identifier for this write. Use it to correlate with logs. Always present in production.
+  Stable identifier for this write. Use it to match SDK logs with server logs.
 </ResponseField>
 
 <ResponseField name="active_fragment_ids" type="list[str]">
-  IDs of the active-memory fragments. These are recallable immediately.
+  IDs of the active-memory fragments. These are recallable right away.
 </ResponseField>
 
 <ResponseField name="passive_job_id" type="str | None">
@@ -96,7 +99,7 @@ tex.conversations.remember(session_id=f"chat-{conv_id}", turns=turns)
 
 ### Pre-extracted observations
 
-If you've already extracted structured facts on your side (e.g. with your own LLM call), pass them inline to skip Tex's extraction step:
+If your app already extracted structured facts, pass them inline:
 
 ```python
 turns = [{
@@ -114,26 +117,26 @@ tex.conversations.remember(session_id="chat-1", turns=turns)
 ## Behavior
 
 <Steps>
-  <Step title="Active write — synchronous">
-    The call returns after active memory persists (~150ms). The turn is recallable immediately.
+  <Step title="Active write">
+    The call returns after active memory is saved, usually around 150ms. The turn is recallable right away.
   </Step>
-  <Step title="Passive enrichment — asynchronous">
-    Observations and entities are extracted and indexed in the background. They become available in subsequent recalls within seconds to a minute.
+  <Step title="Background enrichment">
+    Tex extracts observations and entities in the background. They appear in later recalls.
   </Step>
 </Steps>
 
 ## Best practices
 
 - **Batch.** Pass dozens of turns in one call. Don't loop one-per-turn.
-- **UTC ISO 8601** for timestamps (`...Z` suffix). Avoids timezone surprises in temporal queries.
+- **Use UTC ISO 8601** for timestamps (`...Z` suffix). This keeps temporal queries clear.
 - **Skip system messages.** They consume tokens and add noise to recall.
-- **Background-task `remember`.** Users shouldn't wait for it on the request path — push to Celery / RQ / a `BackgroundTasks` queue.
+- **Run `remember` off the request path.** Use Celery, RQ, or a `BackgroundTasks` queue when users should not wait.
 
 ## Idempotency
 
-Tex computes a stable hash per turn (text + timestamp + role). Re-sending the same turn is a no-op — there's no double-counting in active memory or in your token bill.
+Tex computes a stable hash per turn from text, timestamp, and role. Re-sending the same turn is a no-op. It does not create duplicate active memory or double bill the same turn.
 
-This means you can safely retry a `remember` call after a network blip without worrying about duplicates.
+This makes retries safe after a network blip.
 
 <Card title="Next: Recall" icon="magnifying-glass" href="/sdk/recall">
   Pull the relevant slice of memory.

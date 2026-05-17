@@ -1,11 +1,11 @@
 ---
-title: "From Redis"
-description: "Replace your Redis-backed conversation log with Tex memory."
+title: "Migrate from Redis (or a homegrown log)"
+description: "Replace prompt-stuffed chat logs with remember and recall."
 ---
 
-If your chatbot stores chat history in Redis (or Postgres, or Mongo) and dumps the whole thing into every prompt, this is the migration for you.
+Use this guide if you store chat history in Redis, Postgres, or Mongo and send too much of it to the model on every request.
 
-## The pattern you're replacing
+## Before (Redis log)
 
 ```python before.py
 # Append every turn
@@ -23,7 +23,7 @@ Pain points:
 - "Last 50" is a guess. Older relevant context gets evicted.
 - Redis cost grows linearly forever.
 
-## The Tex version
+## After (Tex)
 
 ```python after.py
 hits = tex.recall(q=user_msg, session_id=sid, top_k=8)
@@ -35,11 +35,11 @@ tex.conversations.remember(session_id=sid, turns=[
 ])
 ```
 
-Three things change for the better:
+Three things change:
 
-1. **Bounded prompts.** You pull the *relevant* 8 turns regardless of how many exist.
+1. **Bounded prompts.** You pull the relevant 8 turns regardless of how many exist.
 2. **Cross-session continuity.** Use `f"chat-{user_id}"` to share memory across conversations.
-3. **No retention policy to maintain.** Tex's confidence scoring decides what stays useful.
+3. **Less prompt trimming.** You stop guessing which recent turns fit in context.
 
 ## Backfill plan
 
@@ -54,7 +54,7 @@ Three things change for the better:
             {"role": t["role"], "text": t["text"], "timestamp": t["ts"]}
             for t in turns
         ]
-        # Big batches are fine — pass all turns at once
+        # Big batches are fine. Pass all turns at once.
         tex.conversations.remember(session_id=sid, turns=formatted)
     ```
   </Step>
@@ -65,7 +65,7 @@ Three things change for the better:
     - `recall(q=<a known phrase>)` finds the right turn
   </Step>
   <Step title="Shadow mode">
-    Run **both** read paths in production for a week. Log when Tex's `confidence < 0.2`. If those rate is below your tolerance, proceed.
+    Run **both** read paths in production for a week. Log when Tex's `confidence < 0.2`. If that rate stays below your tolerance, proceed.
   </Step>
   <Step title="Cut over the read path">
     Switch the prompt to use Tex hits. Keep the Redis writes for one more week as backup.
@@ -77,7 +77,7 @@ Three things change for the better:
 
 ## Edge cases
 
-- **Streaming responses.** Persist with `remember` *after* the stream completes. Background-task it so the next request isn't delayed.
-- **System messages.** Don't migrate them — they consume tokens and add no recall value.
-- **Tool calls.** Store the *result* of a tool call as an assistant turn, not the raw JSON. Recall surfaces text.
-- **Audit log.** Tex isn't an audit store. Keep Redis (or a real append-only log) for compliance and use Tex for retrieval — two systems, two purposes.
+- **Streaming responses.** Persist with `remember` after the stream completes. Run it in the background so the next request is not delayed.
+- **System messages.** Do not migrate them. They consume tokens and add little recall value.
+- **Tool calls.** Store the result of a tool call as an assistant turn, not the raw JSON. Recall returns text.
+- **Audit log.** Tex is not an audit store. Keep Redis or another append-only log for compliance, and use Tex for retrieval.

@@ -1,11 +1,11 @@
 ---
-title: "Manage API keys"
-description: "List, mint, and revoke API keys."
+title: "List, create, and revoke API keys"
+description: "List, create, and revoke long-lived API keys for your org."
 ---
 
 ## `GET /me/api-keys`
 
-Lists keys for the current **org** (sorted by `created_at` desc). Same shape as `GET /me`'s `api_keys` field.
+Lists keys for the current **org**, sorted by `created_at` descending. The response matches the `api_keys` field in `GET /me`.
 
 ```http
 GET /me/api-keys[?include_revoked=true]
@@ -18,7 +18,7 @@ Authorization: Bearer <access_token>
 
 ## `POST /me/api-keys`
 
-Mints a new key. Returns the plaintext value **once.**
+Creates a new key. The plaintext value is returned **once**.
 
 ```http
 POST /me/api-keys
@@ -50,7 +50,7 @@ Content-Type: application/json
 </ResponseField>
 
 <ResponseField name="key" type="object">
-  Metadata (id, prefix, display_id, name, …).
+  Metadata for the key, including id, prefix, display_id, name, scopes, and timestamps.
 </ResponseField>
 
 ```json
@@ -84,13 +84,13 @@ Authorization: Bearer <access_token>
 </ParamField>
 
 <Warning>
-  Revocation is **irreversible.** Existing JWTs minted from a revoked key keep working until they expire (max 24h after revocation).
+  Revocation is **irreversible.** Existing JWTs created from a revoked key keep working until they expire, up to 24h after revocation.
 </Warning>
 
 ## Examples
 
 <CodeGroup>
-```bash cURL — list, mint, revoke
+```bash cURL - list, mint, revoke
 # List active keys
 curl -H "Authorization: Bearer $JWT" \
   https://api.getmetacognition.com/me/api-keys
@@ -126,6 +126,6 @@ httpx.delete(f"{api}/me/api-keys/{key_id}", headers=H)
 
 ## Operational tips
 
-- One key per environment. Mint `production`, `staging`, `local-dev-sauhard` separately.
-- Set `last_used_at` thresholds in your monitoring — alert if a key hasn't been used in 30 days (probably abandoned).
-- Don't share keys across services — each service gets its own so revocation has surgical blast radius.
+- One key per environment. Mint `production`, `staging`, and `local-dev` separately.
+- Alert if a key has not been used in 30 days. It may be abandoned.
+- Do not share keys across services. Give each service its own key so revocation is narrow.

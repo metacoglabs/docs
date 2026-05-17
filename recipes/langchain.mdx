@@ -1,107 +1,145 @@
 ---
-title: "Agent memory (LangChain)"
-description: "Use Tex as an agent's memory tool."
+title: "LangChain agents with memory"
+description: "Add Tex memory to LangChain by injecting recall before the chain or exposing recall as a tool."
+icon: "link"
 ---
 
-Two patterns:
+There are two common ways to use Tex with LangChain.
 
-1. **Memory tool** — agent explicitly calls `recall` when it needs context.
-2. **Pre-prompt injection** — controller code recalls before the LLM call and stuffs results into the prompt.
+Most chat apps should recall memory before the chain runs. Agents that choose their own steps can receive Tex as tools.
 
-Pattern 2 is simpler and almost always sufficient. Pattern 1 is right for true autonomous agents.
+| Pattern | When to use |
+| --- | --- |
+| **Inject** | Your code recalls once per user message. |
+| **Tools** | The model decides when to read or write memory. |
 
-## Pattern 1: memory as a tool
+## Inject (default)
 
-```python
-# pip install tex-sdk langchain langchain-openai
-import os
-from datetime import datetime, timezone
-from tex import Tex
-from langchain.tools import tool
-from langchain.agents import create_react_agent, AgentExecutor
-from langchain_openai import ChatOpenAI
+<Steps>
+  <Step title="Install dependencies">
+    ```bash
+    pip install tex-sdk langchain langchain-openai
+    ```
+  </Step>
 
-tex = Tex(api_key=os.environ["TEX_API_KEY"], base_url=os.environ["TEX_BASE_URL"])
-SESSION = "agent-1"
+  <Step title="Construct Tex once">
+    ```python
+    import os
+    from tex import Tex
 
-def now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    tex = Tex(
+        api_key=os.environ["TEX_API_KEY"],
+        base_url=os.environ["TEX_BASE_URL"],
+    )
+    ```
+  </Step>
 
-@tool
-def recall_memory(query: str) -> str:
-    """Look up the agent's long-term memory for relevant context.
-    Returns up to 5 most-relevant past statements."""
-    hits = tex.recall(q=query, session_id=SESSION, top_k=5)
-    if not hits.hits.turns:
-        return "(no relevant memory)"
-    return "\n".join(f"- {h.text}" for h in hits.hits.turns)
-
-@tool
-def remember_fact(text: str) -> str:
-    """Persist a fact for future recall."""
-    tex.conversations.remember(session_id=SESSION, turns=[
-        {"role":"system","text":text,"timestamp":now_iso()},
-    ])
-    return "remembered"
-
-agent = create_react_agent(
-    ChatOpenAI(model="gpt-4o"),
-    tools=[recall_memory, remember_fact, ...],
-    prompt="...",
-)
-```
-
-The agent decides when to invoke `recall_memory` — useful for multi-step plans where some steps need history and others don't.
-
-## Pattern 2: injection at the controller level
-
-```python
-import os
-from tex import Tex
-
-tex = Tex(api_key=os.environ["TEX_API_KEY"], base_url=os.environ["TEX_BASE_URL"])
-
-def chain(user_msg: str, sid: str) -> str:
-    # 1. Recall
-    hits = tex.recall(q=user_msg, session_id=sid, top_k=5)
-    memory = "\n".join(f"- {h.text}" for h in hits.hits.turns)
-
-    # 2. Build prompt with memory
+  <Step title="Recall → prompt → LLM → remember">
+    ```python
+    from datetime import datetime, timezone
     from langchain.prompts import ChatPromptTemplate
     from langchain_openai import ChatOpenAI
 
-    prompt = ChatPromptTemplate.from_messages([
-        ("system", "Relevant memory about the user:\n{memory}"),
-        ("user", "{input}"),
-    ])
-    chain = prompt | ChatOpenAI(model="gpt-4o")
+    def now_iso() -> str:
+        return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
-    answer = chain.invoke({"memory": memory, "input": user_msg}).content
+    def answer_turn(user_msg: str, session_id: str) -> str:
+        hits = tex.recall(q=user_msg, session_id=session_id, top_k=5)
+        memory = "\n".join(f"- {h.text}" for h in hits.hits.turns)
 
-    # 3. Persist
-    tex.conversations.remember(session_id=sid, turns=[
-        {"role":"user","text":user_msg,"timestamp": now_iso()},
-        {"role":"assistant","text":answer,"timestamp": now_iso()},
-    ])
-    return answer
-```
+        prompt = ChatPromptTemplate.from_messages([
+            ("system", "Relevant memory about the user:\n{memory}"),
+            ("user", "{input}"),
+        ])
+        chain = prompt | ChatOpenAI(model="gpt-4o")
 
-## Replacing `BaseChatMemory`
+        reply = chain.invoke({"memory": memory, "input": user_msg}).content
 
-LangChain's built-in memory (`ConversationBufferMemory`, etc.) is a buffer. Tex is retrieval. The migration is:
+        tex.conversations.remember(
+            session_id=session_id,
+            turns=[
+                {"role": "user", "text": user_msg, "timestamp": now_iso()},
+                {"role": "assistant", "text": reply, "timestamp": now_iso()},
+            ],
+        )
+        return reply
+    ```
+  </Step>
+</Steps>
 
-```python
-# BEFORE — full history in the prompt
+## Tools
+
+<Steps>
+  <Step title="Define tools with `@tool`">
+    ```python
+    import os
+    from datetime import datetime, timezone
+    from tex import Tex
+    from langchain.tools import tool
+    from langchain.agents import create_react_agent, AgentExecutor
+    from langchain_openai import ChatOpenAI
+
+    tex = Tex(api_key=os.environ["TEX_API_KEY"], base_url=os.environ["TEX_BASE_URL"])
+    SESSION = "agent-1"
+
+    def now_iso() -> str:
+        return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+    @tool
+    def recall_memory(query: str) -> str:
+        """Look up long-term memory; returns bullet list of statements."""
+        hits = tex.recall(q=query, session_id=SESSION, top_k=5)
+        if not hits.hits.turns:
+            return "(no relevant memory)"
+        return "\n".join(f"- {h.text}" for h in hits.hits.turns)
+
+    @tool
+    def remember_fact(text: str) -> str:
+        """Persist a fact for later recall."""
+        tex.conversations.remember(
+            session_id=SESSION,
+            turns=[{"role": "system", "text": text, "timestamp": now_iso()}],
+        )
+        return "remembered"
+    ```
+  </Step>
+
+  <Step title="Pass tools into your agent">
+    ```python
+    agent = create_react_agent(
+        ChatOpenAI(model="gpt-4o"),
+        tools=[recall_memory, remember_fact],
+        prompt="...",  # you supply
+    )
+
+    executor = AgentExecutor(agent=agent, tools=[recall_memory, remember_fact])
+    ```
+  </Step>
+</Steps>
+
+<Tip>
+  Add other LangChain tools to the same `tools=[...]` list. The Tex tools behave like normal tools.
+</Tip>
+
+## Compared to `BaseChatMemory`
+
+LangChain buffers keep history in process. Tex stores memory outside the process and returns the top matches for the current question. That keeps prompts smaller and survives deploys.
+
+<CodeGroup>
+```python Before
+from langchain.chains import ConversationChain
+from langchain.memory import ConversationBufferMemory
+
 memory = ConversationBufferMemory()
 chain = ConversationChain(llm=llm, memory=memory)
+```
 
-# AFTER — top-k relevant turns, regardless of recency
+```python After
 hits = tex.recall(q=user_msg, session_id=sid, top_k=5)
 prompt = stitch(hits.hits.turns, user_msg)
 answer = llm.invoke(prompt)
-tex.conversations.remember(session_id=sid, turns=[...])
+tex.conversations.remember(session_id=sid, turns=[...])  # use your normal turn format
 ```
+</CodeGroup>
 
-You stop maintaining a sliding window. You stop hitting context-length errors. The retrieval is bounded.
-
-See [Migrating from LangChain memory](/migration/from-langchain-memory) for a full walk-through.
+For the migration details, continue to [Migrating from LangChain memory](/migration/from-langchain-memory).

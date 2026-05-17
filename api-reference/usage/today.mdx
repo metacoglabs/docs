@@ -1,10 +1,10 @@
 ---
 title: "Today's usage"
-description: "Today's token totals and the active daily quota."
+description: "Read today's token totals, limits, and reset time."
 api: "GET https://api.getmetacognition.com/usage/today"
 ---
 
-Returns today's `tokens_in` / `tokens_out` plus the limits that will trigger a `429`. Doesn't count against your own quota — poll as often as you want.
+Returns today's `tokens_in` and `tokens_out`, plus the limits that trigger `429`. This request does **not** count against your quota, so you can poll it from dashboards or monitors.
 
 ## Headers
 
@@ -15,11 +15,11 @@ Authorization: Bearer <access_token>
 ## Response — `200`
 
 <ResponseField name="tokens_in_used" type="integer">
-  Tokens billed today, ingress.
+  Input tokens billed today.
 </ResponseField>
 
 <ResponseField name="tokens_out_used" type="integer">
-  Tokens billed today, egress.
+  Output tokens billed today.
 </ResponseField>
 
 <ResponseField name="tokens_in_limit" type="integer">

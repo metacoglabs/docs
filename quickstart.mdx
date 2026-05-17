@@ -1,26 +1,47 @@
 ---
 title: "Quickstart"
-description: "First call in five minutes."
+description: "Install tex-sdk, set TEX_API_KEY, store one turn, recall it, and read the score."
+icon: "rocket"
 ---
+
+## Goal
+
+In a few minutes, you will run one Python script that does the core Tex flow:
+
+1. Store a turn with **`remember`**.
+2. Ask a question with **`recall`**.
+3. Print the matching memory, confidence, and token usage.
+
+You need **Python 3.9+**.
 
 <Steps>
   <Step title="Get an API key">
-    Sign up at [app.getmetacognition.com](https://app.getmetacognition.com/signup) and copy the key shown once.
+    Open [app.getmetacognition.com/signup](https://app.getmetacognition.com/signup), create an account, and copy the key shown once.
 
     <Warning>
-      The key appears only on the screen after signup — store it now.
+      You only see the full key when you create it. Store it now in a password manager or secret store.
     </Warning>
   </Step>
 
-  <Step title="Install">
-    ```bash
+  <Step title="Install the SDK">
+    <CodeGroup>
+    ```bash pip
     pip install tex-sdk
     ```
 
-    Or `uv add tex-sdk` / `poetry add tex-sdk`. Requires Python ≥ 3.9. Distribution name is `tex-sdk`; import name is `tex`.
+    ```bash uv
+    uv add tex-sdk
+    ```
+
+    ```bash poetry
+    poetry add tex-sdk
+    ```
+    </CodeGroup>
+
+    On PyPI the package is **`tex-sdk`**. In Python you **`import tex`**.
   </Step>
 
-  <Step title="Make your first call">
+  <Step title="Run this script">
     ```python first_call.py
     import os
     from tex import Tex
@@ -47,26 +68,52 @@ description: "First call in five minutes."
     export TEX_API_KEY="tex_live_..."
     python first_call.py
     ```
+
+    <Check>
+      You should see the shellfish line with a score, plus `confidence` and token usage. If you get `AuthenticationError`, check your key and `base_url`, then use [Troubleshooting](/troubleshooting).
+    </Check>
   </Step>
 </Steps>
 
+## Next
+
+Once the script works, decide how you want to load secrets and whether you want to stay on the SDK.
+
+### Load the key from a `.env` file
+
+Use `python-dotenv` or your framework's loader. Keep `.env` out of git. In production, load `TEX_API_KEY` from your normal secret store.
+
+### Call the API without the SDK
+
+If you do not use the SDK, first exchange your API key for an **access token** and **refresh token**. Send `Authorization: Bearer ...` on ingest and recall. Refresh the access token when it expires. The [REST API overview](/api-reference/overview) lists the endpoints.
+
+The SDK does this for you.
+
+## Reads
+
 <Tip>
-  Confidence will be low when memory is fresh — keep adding turns and watch it climb.
+  If **`confidence`** is low but you know the memory exists, try **`mode="deep"`** once, raise **`top_k`**, or ask the question closer to the stored wording. [Recall and ranking](/concepts/retrieval) explains the knobs.
 </Tip>
 
-## Next
+| Goal | Page |
+| --- | --- |
+| Understand what gets stored | [How memory works](/concepts/memory-model) |
+| Tune recall quality | [Recall and ranking](/concepts/retrieval) |
+| Ship real users | [Scopes and multi-tenancy](/concepts/scopes) |
+| Put a backend in front of a UI | [Production chatbot (FastAPI)](/recipes/fastapi) |
+| Production errors | [Errors and retries](/sdk/errors) |
 
 <CardGroup cols={2}>
   <Card title="How memory works" icon="brain" href="/concepts/memory-model">
-    What's stored and how.
+    Turns, observations, entities after each `remember`.
   </Card>
-  <Card title="Multi-user memory" icon="layer-group" href="/concepts/scopes">
-    Multi-user partitioning.
+  <Card title="Scopes for real users" icon="layer-group" href="/concepts/scopes">
+    Map `session_id` (and tenants) to your product.
   </Card>
-  <Card title="Chatbot backend" icon="server" href="/recipes/fastapi">
-    Production chatbot in 40 lines.
+  <Card title="FastAPI backend" icon="server" href="/recipes/fastapi">
+    Small service pattern behind a UI.
   </Card>
-  <Card title="Handle errors" icon="triangle-exclamation" href="/sdk/errors">
-    Every exception, every retry rule.
+  <Card title="Errors and retries" icon="triangle-exclamation" href="/sdk/errors">
+    What the SDK throws and what it retries.
   </Card>
 </CardGroup>

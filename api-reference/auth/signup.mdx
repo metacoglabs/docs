@@ -1,10 +1,10 @@
 ---
-title: "Create account"
-description: "Create a new org and mint the first API key."
+title: "Sign up"
+description: "Create an org and receive the first API key."
 api: "POST https://api.getmetacognition.com/signup"
 ---
 
-Creates a new organization, a default user inside it, and the first API key for that user. The plaintext API key appears in the response **once and only once**.
+Creates a new organization, a default user, and the first API key. The plaintext API key appears in the response **once**.
 
 ## Body
 
@@ -16,7 +16,7 @@ Creates a new organization, a default user inside it, and the first API key for 
 ```
 
 <ParamField body="org_id" type="string">
-  Optional org id. Auto-generated as `org_<10-char base62>` when omitted. Must be **alphanumeric** (with `-` or `_` allowed) and **≤ 64 chars**. Server returns `409 Conflict` if the id already exists.
+  Optional org id. If omitted, the server generates `org_<10-char base62>`. Must be alphanumeric, with `-` or `_` allowed, and at most 64 chars. Returns `409 Conflict` if the id already exists.
 </ParamField>
 
 <ParamField body="name" type="string">
@@ -34,7 +34,7 @@ Creates a new organization, a default user inside it, and the first API key for 
 </ResponseField>
 
 <ResponseField name="api_key" type="string">
-  The plaintext API key. **Save it now — there's no recovery.**
+  The plaintext API key. **Save it now. It cannot be recovered later.**
 </ResponseField>
 
 <ResponseField name="key" type="object">
@@ -82,11 +82,11 @@ api_key = data["api_key"]   # store this securely
 ```
 
 <Warning>
-  The `api_key` field appears only in this response. Persist it server-side. We can't recover or re-display it.
+  The `api_key` field appears only in this response. Store it server-side. We cannot recover or re-display it.
 </Warning>
 
 <Note>
-  This endpoint is unauthenticated by design — anyone can create an org. To gate it (e.g. private launch), put your existing auth provider in front (Auth0, Clerk) and only forward to `/signup` after their checks pass.
+  This endpoint is unauthenticated by design. Anyone can create an org. For a private launch, put your existing auth provider in front and only forward to `/signup` after your checks pass.
 </Note>
 
 ## Errors
