@@ -728,7 +728,7 @@ On `401`, request a new token from your broker and retry once.
 
 **1. Onboard the org**
 
-Sign up at [app.getmetacognition.com](https://app.getmetacognition.com). Signup creates the org and an owner key (`["*"]`) — keep that one offline for key management and org settings. Then open **API Keys → New key** and choose **Broker (per-user tokens)**, which mints a key with exactly `["impersonate_user"]`. (A Tex operator can do the same with `POST /admin/onboard` and `"api_key_scopes": ["impersonate_user"]`.)
+Sign up at [the Tex dashboard](https://tex-dashboard-ashen.vercel.app/signup). Signup creates the org and an owner key (`["*"]`) — keep that one offline for key management and org settings. Then open **API Keys → New key** and choose **Broker (per-user tokens)**, which mints a key with exactly `["impersonate_user"]`. (A Tex operator can do the same with `POST /admin/onboard` and `"api_key_scopes": ["impersonate_user"]`.)
 
 **2. Store the broker key**
 

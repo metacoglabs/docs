@@ -32,12 +32,12 @@
   "topbarLinks": [
     {
       "name": "Dashboard",
-      "url": "https://app.getmetacognition.com"
+      "url": "https://tex-dashboard-ashen.vercel.app"
     }
   ],
   "topbarCtaButton": {
     "name": "Get an API key",
-    "url": "https://app.getmetacognition.com/signup"
+    "url": "https://tex-dashboard-ashen.vercel.app/signup"
   },
   "anchors": [
     {

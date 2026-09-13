@@ -12,6 +12,11 @@ description: "What's new in the Tex SDK."
 - `RecallResponse.active_tier_error` — set when the active tier failed and hits came only from the remaining tier.
 - The `recall` docstring now says `mode="active"` reads the active tier only; `mode="deep"` adds long-term vector search.
 
+**Server-side fixes (no upgrade needed)**
+
+- `memories.add` items are now returned by `tex.recall` and saved to long-term memory. Previously they were embedded in a different vector space than recall used, and items without a `containerTag` failed the long-term write. The create response reports a tier that failed in `durableTierError` / `activeTierError`. Re-add important memories written before 2026-09-14.
+- Refresh tokens stop working when their API key is revoked, and refreshed tokens keep the key's roles and session id.
+
 **More reliable document ingestion**
 
 - Document ingestion now retries transient failures at the processing provider automatically, server-side. No SDK API changes.
