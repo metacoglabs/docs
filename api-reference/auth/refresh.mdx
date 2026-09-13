@@ -25,7 +25,7 @@ Use this when an `access_token` has expired but the `refresh_token` is still val
 </ResponseField>
 
 <ResponseField name="refresh_token" type="string">
-  New 7-day refresh token. Persist it and discard the old one.
+  New 7-day refresh token. Persist it and discard the old one. It stops working as soon as the issuing API key is revoked.
 </ResponseField>
 
 <ResponseField name="token_type" type="string">
@@ -42,13 +42,11 @@ Use this when an `access_token` has expired but the `refresh_token` is still val
 | --- | --- |
 | `org_id`, `user_id` | Kept |
 | `act` (minted for a specific user) | Kept — the token stays locked to that user |
-| `roles` | **Not** carried over |
-| `session_id` | **Not** carried over |
-
-Memory routes (`/recall`, `/ingestion/memory`, `/v3`, `/v4`, `/usage`) don't need roles. Role-gated routes do — re-exchange the API key instead of refreshing for those.
+| `roles` | Kept, limited to the issuing key's current scopes (never widened) |
+| `session_id` | Kept |
 
 <Warning>
-  Refresh does not check whether the API key that issued the original token is still active. A refresh token can keep producing new tokens after the key is revoked. Don't hand refresh tokens to clients you don't fully trust — re-exchange on your server instead.
+  Refresh checks the API key that issued the original token. If that key has been revoked, `/auth/refresh` returns `401` — exchange a live key again. Refresh tokens issued before 2026-09-14 don't identify their key and also return `401`; the SDK re-exchanges automatically when it holds an `api_key`.
 </Warning>
 
 ## Example

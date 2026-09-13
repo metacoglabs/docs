@@ -84,10 +84,10 @@ So a stolen device token exposes one analyst's view — their personal memory an
 | Access token lifetime | 24 hours (`expires_in: 86400`) |
 | Refresh token lifetime | 7 days by default |
 | Per-token revocation endpoint | None today |
-| Revoking the API key | Stops new exchanges. Access tokens already issued stay valid until they expire. |
-| `POST /auth/refresh` | Doesn't check whether the API key is still active. A refresh token keeps working even after the key is revoked. |
+| Revoking the API key | Stops new exchanges, and `/auth/refresh` returns `401` for tokens minted from it. Access tokens already issued stay valid until they expire. |
+| `POST /auth/refresh` | Checks that the issuing API key is still active. It can't know whether the analyst is still employed. |
 
-Because a refresh token outlives key revocation, use this pattern:
+Because refresh can't re-check the analyst's entitlement, use this pattern:
 
 **1. Send only the access token to the device**
 
@@ -728,7 +728,7 @@ On `401`, request a new token from your broker and retry once.
 
 **1. Onboard the org**
 
-A Tex operator registers the org with `POST /admin/onboard` (`org_id`, `helixdb_base_url`, `jwt_enabled`, `create_api_key`, `api_key_scopes`). Ask for `"api_key_scopes": ["impersonate_user"]`. Without it, the default is `["*"]`.
+Sign up at [app.getmetacognition.com](https://app.getmetacognition.com). Signup creates the org and an owner key (`["*"]`) — keep that one offline for key management and org settings. Then open **API Keys → New key** and choose **Broker (per-user tokens)**, which mints a key with exactly `["impersonate_user"]`. (A Tex operator can do the same with `POST /admin/onboard` and `"api_key_scopes": ["impersonate_user"]`.)
 
 **2. Store the broker key**
 
@@ -784,7 +784,7 @@ The broker key can mint a token for **any** analyst in the org. On a device it c
 
 ### Can the device refresh its own token?
 
-It shouldn't. `POST /auth/refresh` doesn't check whether the API key is still active or whether the analyst is still employed, and there's no per-token revocation. Keep refresh tokens off the device and have ReM ask the broker, which re-checks entitlement before minting.
+It shouldn't. `POST /auth/refresh` stops working when the broker key is revoked, but it can't tell whether the analyst is still employed, and there's no per-token revocation. Keep refresh tokens off the device and have ReM ask the broker, which re-checks entitlement before minting.
 
 ### What does a newly added team member see?
 

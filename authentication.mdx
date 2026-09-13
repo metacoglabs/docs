@@ -127,9 +127,9 @@ The SDK reads `TEX_API_KEY` and `TEX_BASE_URL` from the environment when `api_ke
 | Access token | 24 hours (`expires_in: 86400`) |
 | Refresh token | 7 days |
 
-- **Refresh.** `POST /auth/refresh` returns a new access *and* refresh token. The refreshed token keeps the `act` claim (still locked to the same user) but does not carry the key's roles or the session id.
-- **Revoking a key** stops new token exchanges. It does **not** invalidate tokens already issued: access tokens stay valid until they expire, and `/auth/refresh` does not check whether the originating key is still active.
-- There is no per-token revocation endpoint today. To limit exposure, don't hand refresh tokens to untrusted clients — have your server re-exchange instead.
+- **Refresh.** `POST /auth/refresh` returns a new access *and* refresh token. The refreshed token keeps `org_id`, `user_id`, the `act` claim (still locked to the same user), the session id, and the key's roles — limited to the key's current scopes, so a refresh never widens access.
+- **Revoking a key** stops new token exchanges and makes `/auth/refresh` return `401` for every token minted from that key. Access tokens already issued stay valid until they expire (at most 24 hours).
+- There is no per-token revocation endpoint today. To cut access immediately, revoke the key; to limit the 24-hour window, keep refresh tokens on your server and hand clients only short-lived access tokens.
 
 ## Rotating keys
 
