@@ -1,67 +1,88 @@
 ---
 title: "Authentication"
-description: "How API keys, JWTs, and the refresh loop work."
+description: "API keys, per-user tokens, refresh, and revocation."
 ---
 
-You hold an **API key.** The SDK exchanges it for a short-lived **JWT** the first time it's needed and refreshes transparently. You never see the JWT.
+You hold an **API key** on your server. The SDK exchanges it for a short-lived **JWT access token** the first time it's needed and refreshes transparently.
 
 ## The auth flow
 
 ```mermaid
 sequenceDiagram
-    participant App as Your app
+    participant App as Your server
     participant SDK as Tex SDK
     participant API as Tex API
 
-    App->>SDK: Tex(api_key="tex_live_…")
+    App->>SDK: Tex(api_key=..., org_id=..., user_id="alice")
     Note over SDK: Lazy — no call yet
     App->>SDK: tex.recall(...)
-    SDK->>API: POST /auth/token-exchange
-    API-->>SDK: access_token (24h) + refresh_token (7d)
+    SDK->>API: POST /auth/token-exchange {api_key, user_id}
+    API-->>SDK: access_token (24h) + refresh_token
+    SDK->>API: GET /auth/verify
     SDK->>API: POST /recall (Authorization: Bearer access_token)
     API-->>SDK: hits
 
-    Note over SDK: 24h later, on next call:
+    Note over SDK: After expiry, on next call:
     SDK->>API: POST /recall (expired)
     API-->>SDK: 401
     SDK->>API: POST /auth/refresh
-    API-->>SDK: new access_token
+    API-->>SDK: new token pair
     SDK->>API: POST /recall (retry)
     API-->>SDK: hits
 ```
 
 ## What you provide
 
-The constructor accepts any **one** of three auth modes:
-
 <Tabs>
-  <Tab title="API key (recommended)">
+  <Tab title="Per-user client (production)">
     ```python
-    tex = Tex(
-        api_key="tex_live_…",
+    import os
+    from tex import Tex
+
+    alice = Tex(
+        api_key=os.environ["TEX_API_KEY"],
         base_url="https://api.getmetacognition.com",
+        org_id=os.environ["TEX_ORG_ID"],
+        user_id="alice",
     )
     ```
-    Default for almost every app. The SDK handles exchange and refresh.
+
+    The SDK makes a single `POST /auth/token-exchange` with `{api_key, user_id}` and receives a token minted **for alice**. Every call — including the Supermemory-compatible `/v3` and `/v4` calls — acts as alice, with alice's team and project scopes.
+
+    - The key needs an **impersonation-capable scope**: `impersonate_user` (also accepted: `tenant:write:any_user`, `agent`, `service`, `system`, `*`). Otherwise the exchange returns `403` and the SDK raises `PermissionDeniedError` explaining why.
+    - The minted token carries an `act` claim naming the key. It is locked to alice: it cannot impersonate anyone else.
+    - If you pass `org_id`, the SDK checks that the key belongs to that org.
+
+    See [Per-user clients](/sdk/per-user-clients).
   </Tab>
-  <Tab title="Bring your own JWT">
+  <Tab title="Key identity">
     ```python
     tex = Tex(
-        access_token=jwt_from_my_auth_service,
-        refresh_token=refresh_jwt,           # optional
-        org_id="org_abc",                    # required with BYO-JWT
-        user_id="u_xyz",                     # required with BYO-JWT
+        api_key=os.environ["TEX_API_KEY"],
+        base_url="https://api.getmetacognition.com",
+        org_id=os.environ["TEX_ORG_ID"],
+    )
+    ```
+
+    Without `user_id`, the token is for the key's own synthetic identity (`apikey_<first 8 chars of key id>`). Every caller using this client shares one memory. Fine for scripts and single-user tools; use per-user clients for multi-user apps.
+  </Tab>
+  <Tab title="Bring your own token">
+    ```python
+    tex = Tex(
+        access_token=token_from_your_broker,
+        org_id="org_abc",                    # pass explicitly
+        user_id="alice",                     # pass explicitly
         base_url="https://api.getmetacognition.com",
     )
     ```
 
-    Useful when you broker auth in a separate service and pass JWTs to your client.
+    Use this when a trusted server mints per-user tokens and hands them to a client (for example an on-device app — see the [ReM integration guide](/integrations/rem)).
 
     <Warning>
-      Unlike the api-key flow, BYO-JWT does **not** auto-fill `org_id` / `user_id` from `/auth/verify`. Pass them explicitly — every `remember` and `recall` needs them in the request scope.
+      With `access_token`, SDK 1.2.2+ takes `org_id` / `user_id` from `/auth/verify` or the token's claims. On 1.2.0–1.2.1, pass them — `remember` and `recall` without `scope=` send them in the request body, and a missing `org_id` returns `422`. Without a `refresh_token` or `api_key`, an expired token raises `AuthenticationError`; fetch a new token and build a new client.
     </Warning>
   </Tab>
-  <Tab title="Org + user login (debug only)">
+  <Tab title="Org + user login (dev only)">
     ```python
     tex = Tex(
         org_id="org_abc",
@@ -71,7 +92,7 @@ The constructor accepts any **one** of three auth modes:
     ```
 
     <Warning>
-      `/auth/login` is **disabled** in production (returns 403 unless the integration backend runs with `DEBUG=true`). Use this only for local development against a self-hosted backend. For production apps, use an API key.
+      With no API key and no token, the SDK calls `POST /auth/login`, which only exists when a self-hosted backend runs with `DEBUG=true`. Production returns `403` and the SDK raises `PermissionDeniedError` pointing you to per-user clients.
     </Warning>
   </Tab>
 </Tabs>
@@ -85,30 +106,45 @@ The constructor accepts any **one** of three auth modes:
   <Card title="Docker / Kubernetes" icon="boxes-stacked">
     Secret manager → mounted as `TEX_API_KEY` env var.
   </Card>
-  <Card title="Vercel / Netlify" icon="cloud">
-    Project Environment Variables → `TEX_API_KEY`.
+  <Card title="Serverless" icon="cloud">
+    Project environment variables → `TEX_API_KEY`.
   </Card>
   <Card title="GitHub Actions" icon="github">
     Repository secret → exposed via `${{ secrets.TEX_API_KEY }}`.
   </Card>
 </CardGroup>
 
-The SDK reads `TEX_API_KEY` from the environment automatically when `api_key=` is omitted.
+The SDK reads `TEX_API_KEY` and `TEX_BASE_URL` from the environment when `api_key=` / `base_url=` are omitted. `base_url` has no default — without it the constructor raises `ValueError`.
 
-## Rotating keys without downtime
+<Warning>
+  **Never ship an API key in a device, desktop, or browser app.** A key with an impersonation scope can mint a token for any user in your org. Mint per-user tokens on your server and hand only the access token to the client.
+</Warning>
+
+## Token lifetimes, refresh, and revocation
+
+| Token | Lifetime (production) |
+| --- | --- |
+| Access token | 24 hours (`expires_in: 86400`) |
+| Refresh token | 7 days |
+
+- **Refresh.** `POST /auth/refresh` returns a new access *and* refresh token. The refreshed token keeps the `act` claim (still locked to the same user) but does not carry the key's roles or the session id.
+- **Revoking a key** stops new token exchanges. It does **not** invalidate tokens already issued: access tokens stay valid until they expire, and `/auth/refresh` does not check whether the originating key is still active.
+- There is no per-token revocation endpoint today. To limit exposure, don't hand refresh tokens to untrusted clients — have your server re-exchange instead.
+
+## Rotating keys
 
 <Steps>
   <Step title="Mint key B">
-    [Dashboard → API Keys → New key](https://app.getmetacognition.com/dashboard/keys).
+    [Dashboard → API Keys → New key](https://app.getmetacognition.com/dashboard/keys), or `POST /me/api-keys` with an org-admin token.
   </Step>
   <Step title="Roll out">
     Deploy with `TEX_API_KEY=<key B>`.
   </Step>
   <Step title="Verify">
-    Check the dashboard's "last used" column or your own logs.
+    Check `last_used_at` on the key (`GET /me/api-keys`).
   </Step>
   <Step title="Revoke key A">
-    Click **Revoke** on the old key. Existing JWTs minted from key A keep working for up to 24h, so step 4 has zero customer-visible impact.
+    `DELETE /me/api-keys/{id}`. Clients that already hold tokens keep working until those tokens expire, so this step has no customer-visible impact.
   </Step>
 </Steps>
 
@@ -122,9 +158,9 @@ try:
     tex = Tex(api_key="tex_live_BOGUS", base_url="https://api.getmetacognition.com")
     tex.usage.today()
 except AuthenticationError as e:
-    print(e.status_code)   # 401
-    print(e.message)       # "Invalid API key" or similar
-    print(e.request_id)    # Quote this when filing tickets
+    print(e.status_code)                # 401
+    print(e.details["message"])         # "Invalid API Key"
+    print(e.request_id)                 # X-Correlation-ID — quote it in tickets
 ```
 
 ```bash cURL
@@ -132,14 +168,14 @@ $ curl -X POST https://api.getmetacognition.com/auth/token-exchange \
     -H 'content-type: application/json' \
     -d '{"api_key": "tex_live_BOGUS"}'
 
-{"error":"HTTP 401","message":"Invalid API key","request_id":"…"}
+{"error":"HTTP 401","message":"Invalid API Key","details":null,"timestamp":"…","request_id":null}
 ```
 </CodeGroup>
 
 <Note>
-  **Token lifetimes.** Access JWT lasts 24h. Refresh JWT lasts 7d. Beyond that, the SDK re-exchanges your API key automatically. JWTs are stateless — to invalidate one, revoke the underlying API key.
+  On Tex-native routes the error body's `error` field is `"HTTP <status>"`, so the SDK's `e.message` reads `"HTTP 401"`. The human-readable text is in `e.details["message"]`. See [Handle errors](/sdk/errors).
 </Note>
 
-<Card title="Next: multi-user memory" icon="layer-group" href="/concepts/scopes" horizontal>
-  How `org_id` / `user_id` / `session_id` partition memory.
+<Card title="Next: users, teams, and scopes" icon="layer-group" href="/concepts/scopes" horizontal>
+  How personal and shared memory work.
 </Card>

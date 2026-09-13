@@ -15,84 +15,102 @@ Content-Type: application/json
 
 ## Body
 
-```json
-{
-  "scope": {
-    "org_id": "org_...",
-    "session_id": "chat-1"
-  },
-  "q": "what does the user prefer?",
-  "mode": "active",
-  "top_k": 5,
-  "include_timeline": false
-}
-```
+<Tabs>
+  <Tab title="All visible scopes">
+    ```json
+    {
+      "scope": {"org_id": "acme", "session_id": "chat-1"},
+      "q": "what does the user prefer?",
+      "mode": "active",
+      "top_k": 5
+    }
+    ```
+  </Tab>
+  <Tab title="One scope">
+    ```json
+    {
+      "scope": "team:fpa-pod",
+      "session_id": "chat-1",
+      "q": "open items from the variance review",
+      "mode": "deep"
+    }
+    ```
+  </Tab>
+</Tabs>
 
-<ParamField body="scope.org_id" type="string" required>
-  Your org id (≥ 1 char). Server uses the JWT's `org_id` claim for tenancy regardless — this field is required for Pydantic validation only.
+<ParamField body="scope" type="string | object" required>
+  Either:
+
+  - **A tenant object** `{org_id, user_id?, session_id?}` — reads **every** scope visible to the token's user. `org_id` is required (≥ 1 char); identity comes from the token.
+  - **A scope id string** `"<kind>:<value>"` — narrows the read to that one scope. `403 scope_not_visible` if it isn't visible to you.
 </ParamField>
 
-<ParamField body="scope.session_id" type="string">
-  Session to search. Optional — falls back to the JWT's `session_id`.
+<ParamField body="session_id" type="string">
+  Session for the string-scope form. It does not filter results.
 </ParamField>
 
 <ParamField body="q" type="string" required>
-  Natural-language query. `min_length=1`.
+  Natural-language query (≥ 1 char).
 </ParamField>
 
 <ParamField body="mode" type='"active" | "deep"' default='"active"'>
-  Retrieval depth. See [retrieval](/concepts/retrieval).
+  `active` searches the active tier. `deep` also searches the long-term store and runs a second pass. See [retrieval](/concepts/retrieval).
 </ParamField>
 
 <ParamField body="top_k" type="integer">
-  Hits to return across all kinds. **Defaults to 15 (active) / 25 (deep).** Pydantic validates `1 ≤ top_k ≤ 50`; the runtime then caps at **30**, so values above 30 are silently clamped.
+  Hits across kinds. Defaults to **15** (active) / **25** (deep). Accepts 1–50; values above 30 are clamped to 30.
 </ParamField>
 
 <ParamField body="include_timeline" type="boolean" default="false">
-  Attach a chronological summary string to the response.
+  Attach a chronological summary string.
+</ParamField>
+
+<ParamField body="agent_id" type="string">
+  Agent whose active episodes to search. Defaults to `default-agent`, matching `/ingestion/memory`.
 </ParamField>
 
 ## Response — `200`
 
 <ResponseField name="hits.turns" type="array">
-  Ranked raw turns.
+  Ranked turns: `{id, text, score, kind, timestamp}`.
 </ResponseField>
 
 <ResponseField name="hits.observations" type="array">
-  Atomic facts.
+  Ranked observations, same shape.
 </ResponseField>
 
 <ResponseField name="hits.entities" type="array">
-  Linked entities. Each entity has `{id?, label, score}` — **not** the same shape as turns/observations.
+  `{id, label, score}`. Currently always empty.
 </ResponseField>
 
 <ResponseField name="confidence" type="number">
-  Calibrated [0, 1].
+  In [0, 1], from the top reranker score. Relative, not calibrated.
 </ResponseField>
 
 <ResponseField name="timeline" type="string | null">
-  Pre-rendered chronological summary, set only when `include_timeline=true`.
+  Set only when `include_timeline=true`.
 </ResponseField>
 
 <ResponseField name="mode" type="string">
-  Echoes request mode.
+  Echoes the request mode.
 </ResponseField>
 
 <ResponseField name="usage" type="object">
   `{tokens_in, tokens_out}` for this call.
 </ResponseField>
 
-### Hit shape
+<ResponseField name="active_tier_error" type="string | null">
+  Set when the active tier failed during this call. Hits then come only from the remaining tier.
+</ResponseField>
 
-```json
-{
-  "id": "c9fcfbf51b03bbc3...",
-  "text": "[user] I'm allergic to shellfish.",
-  "score": 0.42,
-  "kind": "turn",
-  "timestamp": "1778061473326"
-}
-```
+## Errors
+
+| Status | When |
+| --- | --- |
+| `401` | Missing, invalid, or expired token |
+| `403` | `scope_not_visible` — the scope string isn't one of your visible scopes |
+| `422` | Validation — empty `q`, invalid `mode`, `top_k` outside 1–50, malformed scope, `org_id` missing or `null` |
+| `429` | `quota_exceeded` |
 
 ## Example
 
@@ -102,7 +120,7 @@ curl -X POST https://api.getmetacognition.com/recall \
   -H "Authorization: Bearer $JWT" \
   -H 'content-type: application/json' \
   -d '{
-    "scope": {"org_id":"org_…","session_id":"chat-1"},
+    "scope": {"org_id":"acme","session_id":"chat-1"},
     "q": "any food restrictions?",
     "top_k": 3
   }'
@@ -115,14 +133,14 @@ resp = httpx.post(
     "https://api.getmetacognition.com/recall",
     headers={"Authorization": f"Bearer {jwt}"},
     json={
-        "scope": {"org_id": "org_…", "session_id": "chat-1"},
+        "scope": {"org_id": "acme", "session_id": "chat-1"},
         "q": "any food restrictions?",
         "top_k": 3,
     },
-    timeout=10,
+    timeout=30,
 )
-hits = resp.json()
-for t in hits["hits"]["turns"]:
+data = resp.json()
+for t in data["hits"]["turns"]:
     print(f"[{t['score']:.2f}] {t['text']}")
 ```
 </CodeGroup>
@@ -134,10 +152,10 @@ for t in hits["hits"]["turns"]:
     "turns": [
       {
         "id": "c9fcfbf5...",
-        "text": "[Date: 2026-05-08T14:00:00Z] [user] I'm allergic to shellfish",
+        "text": "[Date: 2026-09-14T14:00:00Z] [user] I'm allergic to shellfish.",
         "score": 0.4268,
         "kind": "turn",
-        "timestamp": "1778061473326"
+        "timestamp": "1789394400000"
       }
     ],
     "entities": []
@@ -145,6 +163,9 @@ for t in hits["hits"]["turns"]:
   "timeline": null,
   "confidence": 0.067,
   "mode": "active",
-  "usage": { "tokens_in": 6, "tokens_out": 27 }
+  "usage": { "tokens_in": 6, "tokens_out": 27 },
+  "active_tier_error": null
 }
 ```
+
+Active-tier hits report `timestamp` as epoch milliseconds in a string.

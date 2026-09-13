@@ -1,79 +1,98 @@
 ---
 title: "Chatbot backend (FastAPI)"
-description: "Drop-in chatbot backend with Tex memory."
+description: "Drop-in chatbot backend with per-user Tex memory."
 ---
 
-Chatbot backend in ~40 lines. One Tex client per process; memory recall on every turn.
+A chatbot backend with one Tex client per end user. Recall runs on every turn, and remember runs in the background.
+
+<Warning>
+  Use one **Tex identity per end user**. `session_id` groups turns into a conversation, but it does **not** isolate reads. `recall` searches everything the caller's identity can see. If every user shares one key-only client, every user can recall everyone else's memory. See [Per-user clients](/sdk/per-user-clients).
+</Warning>
 
 ## Layout
 
 ```text
 app/
-├── deps.py        # Tex singleton
+├── deps.py        # cached per-user Tex clients
 ├── main.py        # FastAPI app
 └── chat.py        # /chat endpoint
+```
+
+## Environment
+
+```bash
+TEX_API_KEY=tex_live_...          # key with an impersonation scope (impersonate_user, or an owner "*" key)
+TEX_BASE_URL=https://api.getmetacognition.com
+TEX_ORG_ID=org_...
 ```
 
 ## Code
 
 <CodeGroup>
 ```python deps.py
-from functools import cache
-from tex import Tex
 import os
+from functools import lru_cache
 
-@cache
-def tex_client() -> Tex:
+from tex import Tex
+
+
+@lru_cache(maxsize=1024)
+def tex_for_user(user_id: str) -> Tex:
+    """One client per end user: a single /auth/token-exchange, then reused."""
     return Tex(
         api_key=os.environ["TEX_API_KEY"],
-        base_url=os.environ.get(
-            "TEX_BASE_URL", "https://api.getmetacognition.com"
-        ),
+        base_url=os.environ["TEX_BASE_URL"],
+        org_id=os.environ["TEX_ORG_ID"],   # required on SDK 1.2.0–1.2.1; recommended on 1.2.2+ (see note below)
+        user_id=user_id,
         timeout=10,
     )
 ```
 
 ```python chat.py
 from datetime import datetime, timezone
-from fastapi import APIRouter, Depends, Header
-from pydantic import BaseModel
-from tex import Tex, RateLimitError, APITimeoutError
 
-from .deps import tex_client
+from fastapi import APIRouter, BackgroundTasks, Header
+from pydantic import BaseModel
+from tex import APITimeoutError, RateLimitError
+
+from .deps import tex_for_user
 
 router = APIRouter()
 
+
 def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
 
 class ChatBody(BaseModel):
     text: str
     session_id: str
 
-@router.post("/chat")
-def chat(
-    body: ChatBody,
-    x_user_id: str = Header(...),
-    tex: Tex = Depends(tex_client),
-):
-    sid = f"u_{x_user_id}-{body.session_id}"
 
-    # 1. Recall — gracefully degrade on timeout/quota
+@router.post("/chat")
+def chat(body: ChatBody, bg: BackgroundTasks, x_user_id: str = Header(...)):
+    # x_user_id must come from YOUR authenticated session, never trusted raw from the client.
+    tex = tex_for_user(x_user_id)
+
+    # 1. Recall — degrade gracefully on timeout or quota
     memory: list[str] = []
     try:
-        hits = tex.recall(q=body.text, session_id=sid, top_k=5)
-        memory = [h.text for h in hits.hits.turns]
+        hits = tex.recall(body.text, session_id=body.session_id, top_k=5)
+        memory = [h.text for h in hits.hits.turns + hits.hits.observations]
     except (RateLimitError, APITimeoutError):
         memory = []
 
     # 2. Generate — your LLM of choice
     answer = your_llm.complete(body.text, memory=memory)
 
-    # 3. Remember (fire and forget — see notes)
-    tex.conversations.remember(session_id=sid, turns=[
-        {"role": "user",      "text": body.text, "timestamp": now_iso()},
-        {"role": "assistant", "text": answer,    "timestamp": now_iso()},
-    ])
+    # 3. Remember after the response is sent
+    user_turn = {"role": "user", "text": body.text, "timestamp": now_iso()}
+    assistant_turn = {"role": "assistant", "text": answer, "timestamp": now_iso()}
+    bg.add_task(
+        tex.conversations.remember,
+        [user_turn, assistant_turn],
+        session_id=body.session_id,
+    )
 
     return {"answer": answer}
 ```
@@ -87,38 +106,46 @@ app.include_router(router)
 ```
 </CodeGroup>
 
+<Note>
+  **Pass `org_id`.** Required on SDK 1.2.0–1.2.1: `remember` and `recall` without `scope=` built the request before the first token exchange, so a client created without `org_id` sent `org_id: null` and got `422`. Fixed in 1.2.2; passing it still makes the SDK verify the key belongs to your org.
+</Note>
+
 ## Run
 
 ```bash
-export TEX_API_KEY=tex_live_...
+export TEX_API_KEY=tex_live_... TEX_ORG_ID=org_... TEX_BASE_URL=https://api.getmetacognition.com
 uvicorn app.main:app --reload
 ```
 
 ## Production tweaks
 
-**Push `remember` to a background task.** Holding the request open for the write adds 100–250ms to tail latency:
+**Keep `remember` off the request path.** `BackgroundTasks` (above) returns the answer first. For heavy traffic, use a real queue such as Celery or RQ.
+
+**Bound recall latency.** Set a lower `timeout` on the client, catch `APITimeoutError`, and answer without memory.
+
+**Reach older conversations.** `mode="active"` searches open conversations only. A conversation closes after its inactivity window without writes (30 minutes by default) and is consolidated into long-term memory. Retry with `mode="deep"` when active recall comes back empty:
 
 ```python
-from fastapi import BackgroundTasks
-
-@router.post("/chat")
-def chat(body: ChatBody, bg: BackgroundTasks, tex: Tex = Depends(tex_client)):
-    ...
-    bg.add_task(tex.conversations.remember,
-                session_id=sid, turns=[user_turn, assistant_turn])
-    return {"answer": answer}
+hits = tex.recall(body.text, session_id=body.session_id, top_k=5)
+if not hits.hits.turns:
+    hits = tex.recall(body.text, session_id=body.session_id, top_k=5, mode="deep")
 ```
 
-**Bound recall latency** with `Tex(timeout=2.0)`; catch `APITimeoutError` and degrade to no-memory generation.
+**Share with a team.** Pass `scope="team:<id>"` on `remember` to write where teammates can read it. See [Scopes](/sdk/scopes).
 
 **Health check:**
 
-```python
+```python main.py
+from fastapi.responses import JSONResponse
+
+from .deps import tex_for_user
+
+
 @app.get("/healthz")
-def healthz(tex: Tex = Depends(tex_client)):
+def healthz():
     try:
-        tex.usage.today()
+        tex_for_user("healthcheck").usage.today()
         return {"ok": True}
     except Exception as e:
-        return {"ok": False, "error": str(e)}, 503
+        return JSONResponse(status_code=503, content={"ok": False, "error": str(e)})
 ```

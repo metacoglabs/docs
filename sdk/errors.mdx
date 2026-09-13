@@ -1,162 +1,164 @@
 ---
 title: "Handle errors"
-description: "Every exception class and the SDK's automatic retry behavior."
+description: "Every exception class, the error body shapes, and the SDK's automatic retries."
 ---
 
-All Tex exceptions inherit from `tex.TexError`. You almost always want to catch one of:
+All Tex exceptions inherit from `tex.TexError`.
 
 | Class | Status | Inherits | When |
 | --- | --- | --- | --- |
-| [`BadRequestError`](#badrequesterror) | 400 | `APIStatusError` | Malformed payload |
-| [`AuthenticationError`](#authenticationerror) | 401 | `APIStatusError` | Bad / expired key |
-| [`PermissionDeniedError`](#permissiondeniederror) | 403 | `APIStatusError` | Key revoked or lacks scope |
-| [`NotFoundError`](#notfounderror) | 404 | `APIStatusError` | Unknown resource |
-| [`ConflictError`](#conflicterror) | 409 | `APIStatusError` | Resource exists (e.g. duplicate org_id) |
-| [`UnprocessableEntityError`](#unprocessableentityerror) | 422 | `APIStatusError` | Pydantic validation failure |
-| [`RateLimitError`](#ratelimiterror) | 429 | `APIStatusError` | Daily quota exceeded |
-| [`InternalServerError`](#internalservererror) | 5xx | `APIStatusError` | Our problem; SDK retried |
-| [`APITimeoutError`](#apitimeouterror) | — | `APIConnectionError` → `APIError` | Network or server too slow |
-| [`APIConnectionError`](#apiconnectionerror) | — | `APIError` | DNS, TLS, connection reset |
-| [`APIResponseValidationError`] | — | `APIError` | Server returned an unexpected shape |
+| `InvalidScopeError` | — | `TexError`, `ValueError` | Malformed scope id, raised before any request |
+| `InvalidInactivityTimeoutError` | — | `TexError`, `ValueError` | SDK 1.2.1+: inactivity window not an `int` in 300–86,400, raised before any request |
+| `BadRequestError` | 400 | `APIStatusError` | Malformed payload on `/v3` / `/v4` routes |
+| `AuthenticationError` | 401 | `APIStatusError` | Bad key, expired or invalid token |
+| `PermissionDeniedError` | 403 | `APIStatusError` | Scope not visible, `containerTag` not permitted, key lacks impersonation scope, admin-only route |
+| `NotFoundError` | 404 | `APIStatusError` | Unknown resource, or a document you can't see |
+| `ConflictError` | 409 | `APIStatusError` | Update/delete of a pipeline document; duplicate `org_id` on signup |
+| `UnprocessableEntityError` | 422 | `APIStatusError` | Validation failure on Tex-native routes (e.g. missing turn `timestamp`) |
+| `RateLimitError` | 429 | `APIStatusError` | Daily token quota exceeded |
+| `InternalServerError` | 5xx | `APIStatusError` | Server error; the SDK already retried |
+| `APIStatusError` | other | `APIError` | Any other HTTP error status |
+| `APITimeoutError` | — | `APIConnectionError` | Request timed out |
+| `APIConnectionError` | — | `APIError` | DNS, TLS, connection reset |
+| `APIResponseValidationError` | — | `APIError` | Reserved |
 
 `TexHTTPError` (alias of `APIStatusError`) and `TexAuthError` (alias of `AuthenticationError`) are kept for backward compatibility.
 
-## Common shape
+## Attributes
 
 ```python
-# All TexError subclasses
-e.message         # human-readable
-
-# APIStatusError subclasses (everything with an HTTP status — see "Inherits" column above)
-e.status_code     # int
-e.request_id      # X-Correlation-ID — quote in support tickets
-e.details         # dict — server's full JSON, may include field-level errors
-e.response_text   # raw response body, capped at 2KB
+e.message         # str — see "Reading the error code" below
+e.status_code     # int          (APIStatusError subclasses)
+e.request_id      # str | None   X-Correlation-ID response header — quote in tickets
+e.details         # the parsed JSON response body (dict), when there is one
+e.response_text   # raw response body, capped at 2,000 chars
 ```
 
 <Warning>
-  `APITimeoutError` and `APIConnectionError` are **network errors**, not HTTP errors — they don't have `status_code`, `request_id`, `details`, or `response_text` because the request never produced a response. Catch them separately.
+  `APITimeoutError` and `APIConnectionError` are **network errors** — no response, so no `status_code`, `request_id`, `details`, or `response_text`. `InvalidScopeError` and `InvalidInactivityTimeoutError` are raised client-side and have only a message.
 </Warning>
 
-```python
-from tex import Tex, RateLimitError, AuthenticationError, APITimeoutError, BadRequestError
+## Reading the error code
 
-try:
-    tex.recall(q=q, session_id=sid)
-except RateLimitError:
-    return cached_or_fallback()
-except AuthenticationError:
-    page_oncall("tex auth broken")
-    raise
-except APITimeoutError:
-    return degraded_no_memory_response()
-except BadRequestError as e:
-    log.warning("bad payload: %s", e.details)
-    raise
+Tex returns two error body shapes:
+
+<Tabs>
+  <Tab title="Tex-native routes">
+    `/recall`, `/ingestion/*`, `/auth/*`, `/me/*`, `/usage/*`, `/admin/*`:
+
+    ```json
+    {
+      "error": "HTTP 403",
+      "message": "Write scope 'team:finance' is not in your visible scopes. …",
+      "details": {
+        "error": "scope_not_visible",
+        "scope": "team:finance",
+        "message": "…",
+        "visible_scopes": ["org:acme", "team:fpa-pod", "user:alice"]
+      },
+      "timestamp": "2026-09-14T10:00:00Z",
+      "request_id": null
+    }
+    ```
+
+    The SDK uses the top-level `error` field as `e.message`, so `e.message == "HTTP 403"`. The machine-readable code is `e.details["details"]["error"]`. Request validation errors (`422`) use FastAPI's shape: `{"detail": [{"loc": [...], "msg": "...", ...}]}`.
+  </Tab>
+  <Tab title="Supermemory-compatible routes">
+    `/v3/*`, `/v4/*`:
+
+    ```json
+    {
+      "error": "container_tag_not_permitted",
+      "containerTag": "bob",
+      "message": "This token is bound to a single user; …"
+    }
+    ```
+
+    `e.message` is the code and `e.details["error"]` holds it too. Validation errors on these routes are `400` with `{"error": "BadRequest", "details": "…"}`.
+  </Tab>
+</Tabs>
+
+A helper that works for both:
+
+```python
+def tex_error_code(e) -> str | None:
+    d = e.details if isinstance(e.details, dict) else {}
+    inner = d.get("details")
+    return (inner if isinstance(inner, dict) else d).get("error")
 ```
 
-## Per-class details
+## Error codes you should handle
 
-### `BadRequestError`
+| Status | Code | Meaning | Fix |
+| --- | --- | --- | --- |
+| 401 | — | Invalid key, or expired / invalid token | Check the key; for broker-issued tokens, fetch a new one |
+| 403 | `scope_not_visible` | Write or narrowed read into a scope you aren't a member of | Grant the membership, wait for the next token refresh, retry |
+| 403 | `container_tag_not_permitted` | Per-user token named another user in `containerTag` | Omit `container_tag` or pass your own user id |
+| 403 | — (`user_id override not permitted`) | Token exchange with `user_id` using a key without an impersonation scope | Use a key with `impersonate_user` |
+| 404 | `NotFound` | Document doesn't exist or isn't visible to you | Check the id and the document's scope |
+| 409 | `Conflict` | `documents.update` / `delete` on a `doc-…` id | Add a new document, or edit individual memories |
+| 422 | — | Validation (e.g. turn without `timestamp`, `role` not `user`/`assistant`, `org_id` `null`, `inactivity_timeout_seconds` outside 300–86,400) | Fix the payload; pass `org_id` to `Tex(...)` |
+| 429 | `quota_exceeded` | Daily token quota (`details.kind`: `tokens_in_daily` / `tokens_out_daily`) | Degrade; resets 00:00 UTC |
 
-Returned when a payload is malformed. Common causes:
+## Examples
 
-- Missing required field on a turn (e.g. no `text`)
-- Invalid `mode` value on `recall`
-- Invalid `session_id` shape (must be a string)
+```python
+from tex import (Tex, RateLimitError, AuthenticationError, APITimeoutError,
+                 PermissionDeniedError, UnprocessableEntityError)
 
-`e.details` includes a Pydantic-style `loc` list that tells you exactly which field broke.
+try:
+    tex.conversations.remember(turns, session_id=sid, scope="team:finance")
+except PermissionDeniedError as e:
+    if tex_error_code(e) == "scope_not_visible":
+        log.warning("not a member; visible=%s", e.details["details"]["visible_scopes"])
+    raise
+except UnprocessableEntityError as e:
+    log.warning("bad payload: %s", e.details)   # {"detail": [{"loc": [...], ...}]}
+    raise
+except RateLimitError:
+    enqueue_for_tomorrow(turns)
+except APITimeoutError:
+    enqueue_for_retry(turns)
+```
 
 ### `AuthenticationError`
 
-Status 401. The SDK already attempted a JWT refresh (once) before raising.
-
-```python
-try:
-    tex.recall(q=q, session_id=sid)
-except AuthenticationError as e:
-    if "Invalid API key" in e.message:
-        # Real bad-key situation
-        rotate_key_alarm()
-    else:
-        # JWT refresh failed — likely revoked
-        notify_user("please log in again")
-```
-
-### `PermissionDeniedError`
-
-Status 403. The credential is valid but lacks scope. Mostly relevant for keys you've scoped down (admin keys, read-only keys). For default keys this shouldn't fire.
-
-### `NotFoundError`
-
-Status 404. You referenced something that doesn't exist — typically a stale `key_id` on `DELETE /me/api-keys/{id}`.
-
-### `UnprocessableEntityError`
-
-Status 422. FastAPI's Pydantic validation rejected the payload. The SDK builds payloads for you, so this usually only fires when you've passed an unexpected type.
+Status 401. When the request carried a token, the SDK already tried one refresh (refresh token, or re-exchange of the API key) before raising.
 
 ### `RateLimitError`
 
-Status 429. The SDK retries on `429` like other transient codes (with exponential backoff and `Retry-After` honored), so by the time you see this exception the SDK has already exhausted retries.
-
-For **daily-quota 429s** (the normal case), retries are futile until midnight UTC — set `max_retries=0` for paths where you'd rather fail fast and degrade:
+Status 429. The SDK retries 429 like other transient codes, so by the time you see it, retries are exhausted. Daily-quota 429s won't clear until 00:00 UTC — set `max_retries=0` on paths where you'd rather fail fast.
 
 ```python
-try:
-    tex.recall(q=q, session_id=sid)
-except RateLimitError as e:
-    return generate_without_memory(q)   # graceful degradation
-```
-
-The `e.details` payload tells you which cap fired (`tokens_in_daily` or `tokens_out_daily`) and when it resets:
-
-```python
-e.details
-# {"error":"quota_exceeded","kind":"tokens_in_daily","used":1000123,"limit":1000000,"period":"day_utc","period_start":"2026-05-08T00:00:00+00:00","message":"…"}
+e.details["details"]
+# {"error": "quota_exceeded", "kind": "tokens_in_daily", "used": 1000123,
+#  "limit": 1000000, "period": "day_utc", "period_start": "2026-09-14T00:00:00+00:00", "message": "…"}
 ```
 
 ### `InternalServerError`
 
-Status 5xx. The SDK already retried (default 2x with exponential backoff). If you still see this, file a ticket with `e.request_id`.
-
-### `APITimeoutError`
-
-The request didn't return within `timeout`. The SDK retries on timeout, but ultimately surfaces `APITimeoutError` if all attempts fail.
-
-```python
-try:
-    hits = tex.recall(q=q, session_id=sid)
-except APITimeoutError:
-    hits = None   # fall back to no-memory generation
-```
-
-### `APIConnectionError`
-
-DNS, TLS, or socket-level failure. Same retry behavior as `APITimeoutError`. If you see this in production, check your egress proxy / firewall.
+Status 5xx. The SDK already retried (default 2x). If you still see it, file a ticket with `e.request_id`.
 
 ## Built-in retries
 
 The SDK retries automatically on:
 
-- Status codes: `408`, `429`, `500`, `502`, `503`, `504`
-- `httpx.TimeoutException`
-- `httpx.HTTPError` (network)
+- Status codes `408`, `429`, `500`, `502`, `503`, `504`
+- Timeouts and network errors
 
-Default: **2 retries** with exponential backoff (0.5s, 1s). Override:
+Default: **2 retries** with exponential backoff (0.5s, 1s). `Retry-After` is honored when larger. Override:
 
 ```python
-tex = Tex(api_key=..., max_retries=5)
+tex = Tex(api_key=..., base_url=..., org_id=..., max_retries=5)
 ```
 
-The `Retry-After` header is honored — if the server says wait 3 seconds, the SDK waits at least 3 (not capped at the backoff value).
+## Retry safety
 
-<Note>
-  `429` from the daily-quota path retries the same way other 429s do — but you'll still be over quota when the retry hits, so the `RateLimitError` ultimately surfaces. If that round-trip waste matters, set `max_retries=0` on quota-sensitive paths.
-</Note>
-
-## Idempotency
-
-`remember` is idempotent (turn-hash dedup). `recall` and `usage.*` are read-only. Safe to retry any of them.
+| Call | Safe to retry? |
+| --- | --- |
+| `recall`, `usage.*`, `documents.get`, `search.*` | Yes — reads |
+| `conversations.remember` | Mostly — identical turns don't duplicate active fragments, but long-term writes and token metering aren't deduplicated |
+| `documents.add`, `memories.add`, `batch_add` | No — each call creates new ids. Record returned ids and reconcile before re-sending |
 
 <Card title="Next: REST API" icon="code" href="/api-reference/overview">
   Direct HTTP integration without the SDK.

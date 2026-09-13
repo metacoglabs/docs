@@ -5,10 +5,10 @@ description: "First call in five minutes."
 
 <Steps>
   <Step title="Get an API key">
-    Sign up at [app.getmetacognition.com](https://app.getmetacognition.com/signup) and copy the key shown once.
+    Sign up at [app.getmetacognition.com](https://app.getmetacognition.com/signup) and copy the key and your **org id**.
 
     <Warning>
-      The key appears only on the screen after signup — store it now.
+      The key appears only once — store it now. Keep it on your server; never ship it in a mobile, desktop, or browser app.
     </Warning>
   </Step>
 
@@ -28,30 +28,41 @@ description: "First call in five minutes."
     tex = Tex(
         api_key=os.environ["TEX_API_KEY"],
         base_url="https://api.getmetacognition.com",
+        org_id=os.environ["TEX_ORG_ID"],   # recommended — see note
+        user_id="alice",                   # the end user this client acts for
     )
 
     tex.conversations.remember(session_id="chat-1", turns=[
         {"role": "user", "text": "I'm allergic to shellfish.",
-         "timestamp": "2026-05-08T14:00:00Z"},
+         "timestamp": "2026-09-14T14:00:00Z"},
     ])
 
-    hits = tex.recall(q="any food restrictions?", session_id="chat-1")
-    for h in hits.hits.turns:
+    resp = tex.recall(q="any food restrictions?", session_id="chat-1")
+    for h in resp.hits.turns:
         print(f"[{h.score:.2f}] {h.text}")
 
-    print("confidence:", hits.confidence)
-    print("usage:", hits.usage.tokens_in, "in /", hits.usage.tokens_out, "out")
+    print("confidence:", resp.confidence)
+    print("usage:", resp.usage.tokens_in, "in /", resp.usage.tokens_out, "out")
     ```
 
     ```bash
     export TEX_API_KEY="tex_live_..."
+    export TEX_ORG_ID="org_..."
     python first_call.py
     ```
   </Step>
 </Steps>
 
+<Note>
+  **Why `org_id`?** With `api_key` + `user_id`, the SDK checks that the key belongs to this org, so a wrong key fails fast. SDK 1.2.2 and later fill it in from the token when omitted; **1.2.0 and 1.2.1 require it** — without it, the first `remember` / `recall` sends `org_id: null` and gets `422`.
+</Note>
+
+<Note>
+  **Why `user_id`?** Memory is isolated per user. With `user_id`, the SDK exchanges your key for a token minted for that user (your key needs an impersonation scope — keys from signup have it). Without `user_id`, every call acts as the key's own identity and all traffic shares one memory. See [Per-user clients](/sdk/per-user-clients).
+</Note>
+
 <Tip>
-  Confidence will be low when memory is fresh — keep adding turns and watch it climb.
+  Every turn needs `role` (`"user"` or `"assistant"`), non-empty `text`, and an ISO 8601 `timestamp`. A missing timestamp returns `422`.
 </Tip>
 
 ## Next
@@ -60,8 +71,8 @@ description: "First call in five minutes."
   <Card title="How memory works" icon="brain" href="/concepts/memory-model">
     What's stored and how.
   </Card>
-  <Card title="Multi-user memory" icon="layer-group" href="/concepts/scopes">
-    Multi-user partitioning.
+  <Card title="Users, teams, and scopes" icon="layer-group" href="/concepts/scopes">
+    Personal and shared memory.
   </Card>
   <Card title="Chatbot backend" icon="server" href="/recipes/fastapi">
     Production chatbot in 40 lines.

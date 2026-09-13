@@ -81,12 +81,23 @@
       ]
     },
     {
+      "group": "Integrations",
+      "pages": [
+        "integrations/rem"
+      ]
+    },
+    {
       "group": "Python SDK",
       "pages": [
         "sdk/installation",
         "sdk/client",
+        "sdk/per-user-clients",
+        "sdk/scopes",
         "sdk/conversations-remember",
         "sdk/recall",
+        "sdk/documents",
+        "sdk/memories",
+        "sdk/search",
         "sdk/usage",
         "sdk/errors"
       ]
@@ -107,7 +118,8 @@
           "group": "Account",
           "pages": [
             "api-reference/account/me",
-            "api-reference/account/api-keys"
+            "api-reference/account/api-keys",
+            "api-reference/account/settings"
           ]
         },
         {
@@ -118,10 +130,23 @@
           ]
         },
         {
+          "group": "Documents",
+          "pages": [
+            "api-reference/documents/add-document",
+            "api-reference/documents/get-document"
+          ]
+        },
+        {
           "group": "Usage",
           "pages": [
             "api-reference/usage/today",
             "api-reference/usage/summary"
+          ]
+        },
+        {
+          "group": "Admin",
+          "pages": [
+            "api-reference/admin/scope-memberships"
           ]
         }
       ]

@@ -4,53 +4,71 @@ description: "Persist conversation turns to memory."
 ---
 
 ```python
-RememberResponse = tex.conversations.remember(
+tex.conversations.remember(
     turns: list[dict],
     *,
     session_id: str,
     metadata: dict | None = None,
+    scope: str | None = None,
+    inactivity_timeout_seconds: int | None = None,   # 1.2.1+
 ) -> RememberResponse
 ```
+
+Calls `POST /ingestion/memory`.
 
 ## Parameters
 
 <ParamField path="turns" type="list[dict]" required>
-  A list of turn dicts. **At least one turn is required** (server rejects empty lists with `422`). Each turn:
+  At least one turn (an empty list returns `422`). Each turn:
 
   ```python
   {
-    "role": "user" | "assistant" | str,   # any free-form role
-    "text": "the thing said",
-    "timestamp": "2026-01-12T14:00:00Z",  # ISO 8601, UTC preferred
-    "observations": [...],                 # optional, see below
+    "role": "user",                          # "user" or "assistant" only
+    "text": "the thing said",                # non-empty
+    "timestamp": "2026-09-14T14:00:00Z",     # required, ISO 8601 string
+    "observations": ["short fact", "..."],   # optional list of strings
   }
   ```
+
+  A missing `timestamp`, an empty `text`, or any other `role` (such as `"system"`) returns `422` (`UnprocessableEntityError`).
 </ParamField>
 
 <ParamField path="session_id" type="str" required>
-  The conversation, channel, or task this batch belongs to.
+  The conversation, work session, or task this batch belongs to. Turns with the same `session_id` form one episode. It does not limit who can read them — see [scopes](/concepts/scopes).
 </ParamField>
 
 <ParamField path="metadata" type="dict | None">
-  Free-form metadata attached to the batch. Searchable in deep mode.
+  Free-form metadata. Accepted but currently unused.
+</ParamField>
+
+<ParamField path="scope" type="str | None">
+  Hierarchical write scope, e.g. `"team:fpa-pod"`. Falls back to the client's `default_scope`, then to your personal `user:<user_id>` scope. `403 scope_not_visible` if you are not a member. Malformed ids raise `InvalidScopeError` before any request.
+</ParamField>
+
+<ParamField path="inactivity_timeout_seconds" type="int | None">
+  **SDK 1.2.1+.** How long this conversation's episode may sit idle before it closes and consolidates, 300–86,400 seconds. Falls back to the client's `active_inactivity_timeout_seconds`, then your org default, then 30 minutes. The episode keeps the last window it was given. Out-of-range or non-integer values raise `InvalidInactivityTimeoutError` before any request. See [Inactivity window](/concepts/memory-model#inactivity-window).
 </ParamField>
 
 ## Returns
 
 <ResponseField name="job_id" type="str | None">
-  Stable identifier for this write. Use it to correlate with logs. Always present in production.
+  Per-call id for correlating with logs.
 </ResponseField>
 
 <ResponseField name="active_fragment_ids" type="list[str]">
-  IDs of the active-memory fragments. These are recallable immediately.
+  Active-tier fragment ids, in order: each turn, then its observations. Recallable immediately.
 </ResponseField>
 
 <ResponseField name="passive_job_id" type="str | None">
-  Reserved for future async passive job tracking. Currently always `null`.
+  Reserved. Currently always `None`.
 </ResponseField>
 
 <ResponseField name="usage" type="Usage | None">
-  `tokens_in` / `tokens_out` for this call. `tokens_out` is typically 0 on `remember`. Always present in production.
+  `tokens_in` / `tokens_out` for this call. `tokens_out` is 0 on `remember`.
+</ResponseField>
+
+<ResponseField name="raw" type="dict">
+  The full response body.
 </ResponseField>
 
 ## Examples
@@ -64,7 +82,7 @@ tex.conversations.remember(
         {
             "role": "user",
             "text": "I prefer Python over JavaScript.",
-            "timestamp": "2026-05-08T10:00:00Z",
+            "timestamp": "2026-09-14T10:00:00Z",
         },
     ],
 )
@@ -73,13 +91,37 @@ tex.conversations.remember(
 ### Both sides of a turn
 
 ```python
+from datetime import datetime, timezone
+
+def now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
 tex.conversations.remember(
     session_id="chat-1",
     turns=[
-        {"role": "user",      "text": user_msg,   "timestamp": now_iso()},
+        {"role": "user",      "text": user_msg,      "timestamp": now_iso()},
         {"role": "assistant", "text": assistant_msg, "timestamp": now_iso()},
     ],
 )
+```
+
+### Share with a team
+
+```python
+tex.conversations.remember(
+    session_id="q3-variance-review",
+    scope="team:fpa-pod",
+    turns=[{"role": "user", "text": "Travel spend is 12% over plan in EMEA.",
+            "timestamp": now_iso()}],
+)
+```
+
+### Long working session
+
+```python
+# SDK 1.2.1+: keep a model-review session in the active tier through 2-hour breaks
+tex.conversations.remember(turns, session_id="fy27-model-review",
+                           inactivity_timeout_seconds=7200)
 ```
 
 ### Backfill historical conversation
@@ -90,50 +132,48 @@ turns = [
     for t in db.fetch_chat_history(conv_id)
 ]
 
-# One big batch is far cheaper than per-turn calls
-tex.conversations.remember(session_id=f"chat-{conv_id}", turns=turns)
+# One batch instead of per-turn calls
+tex.conversations.remember(turns, session_id=f"chat-{conv_id}")
 ```
 
-### Pre-extracted observations
+### Observations
 
-If you've already extracted structured facts on your side (e.g. with your own LLM call), pass them inline to skip Tex's extraction step:
+Pass short facts you extracted yourself. Tex stores them next to the turn; it doesn't extract observations on this path.
 
 ```python
 turns = [{
     "role": "user",
     "text": "I'm allergic to shellfish.",
-    "timestamp": "2026-05-08T10:00:00Z",
-    "observations": [
-        {"type": "preference", "predicate": "avoids", "value": "shellfish"},
-    ],
+    "timestamp": "2026-09-14T10:00:00Z",
+    "observations": ["avoids shellfish"],
 }]
 
-tex.conversations.remember(session_id="chat-1", turns=turns)
+tex.conversations.remember(turns, session_id="chat-1")
 ```
 
 ## Behavior
 
 <Steps>
-  <Step title="Active write — synchronous">
-    The call returns after active memory persists (~150ms). The turn is recallable immediately.
+  <Step title="Synchronous write">
+    The call returns `202` after the turns are written to the active tier. They are recallable immediately with `recall(mode="active")`.
   </Step>
-  <Step title="Passive enrichment — asynchronous">
-    Observations and entities are extracted and indexed in the background. They become available in subsequent recalls within seconds to a minute.
+  <Step title="Episode close and consolidation">
+    Once the session goes without writes for its inactivity window (30 minutes by default), the episode closes and is consolidated into the long-term store. From then on, find it with `recall(mode="deep")`. See [How memory works](/concepts/memory-model#inactivity-window).
   </Step>
 </Steps>
 
 ## Best practices
 
-- **Batch.** Pass dozens of turns in one call. Don't loop one-per-turn.
-- **UTC ISO 8601** for timestamps (`...Z` suffix). Avoids timezone surprises in temporal queries.
-- **Skip system messages.** They consume tokens and add noise to recall.
-- **Background-task `remember`.** Users shouldn't wait for it on the request path — push to Celery / RQ / a `BackgroundTasks` queue.
+- **Batch.** Pass many turns in one call.
+- **UTC ISO 8601** timestamps (`...Z`). Use the time the turn happened, not the time you send it.
+- **Skip system prompts and filler.** They consume tokens and add noise.
+- **Don't block the user.** Push `remember` to a background task.
 
-## Idempotency
+## Retries and duplicates
 
-Tex computes a stable hash per turn (text + timestamp + role). Re-sending the same turn is a no-op — there's no double-counting in active memory or in your token bill.
+The active-tier fragment id is derived from the write scope, org, user, session, timestamp, and text. Replaying an identical turn does **not** create a duplicate active fragment.
 
-This means you can safely retry a `remember` call after a network blip without worrying about duplicates.
+The long-term write and token metering are **not** deduplicated. Keep the original timestamp when you retry, and avoid replaying batches that already succeeded.
 
 <Card title="Next: Recall" icon="magnifying-glass" href="/sdk/recall">
   Pull the relevant slice of memory.

@@ -1,24 +1,39 @@
 ---
 title: "Recall and ranking"
-description: "Active vs deep, top_k tuning, confidence gating."
+description: "Active vs deep, scoped reads, top_k, and confidence."
 ---
 
-`tex.recall(q, session_id, ...)` is your read path.
+`tex.recall(q, session_id=..., ...)` is your read path.
 
 ## Modes
 
 <CardGroup cols={2}>
   <Card title="active (default)" icon="bolt">
-    Single-pass. **1.5–2.5s.** Use for every interactive call.
+    Searches the **active tier** — the open episodes you can see. Query expansion, then rerank. The fast path for interactive calls.
   </Card>
   <Card title="deep" icon="diagram-project">
-    Two-pass with iterative rerank. **3–6s.** For periodic analysis or low-confidence retries.
+    Also searches the **long-term store** (consolidated episodes, documents), then runs a second retrieval pass with keywords from the first. Slower and broader. Use for older history and low-confidence retries.
   </Card>
 </CardGroup>
 
+<Note>
+  `session_id` does **not** filter results. Recall searches across all of your open episodes (active) and your long-term memory (deep), limited only by the scopes you can see. Use [scopes](/concepts/scopes) and per-user identities to control what a caller can read.
+</Note>
+
+## Scoped reads
+
+By default recall spans every scope visible to the caller: your personal `user:` scope, your org's `org:` scope, and every team or project you are a member of. Narrow a read to one scope:
+
+```python
+resp = tex.recall(q="what did we decide on headcount?",
+                  session_id="s1", scope="team:fpa-pod")
+```
+
+A scope you are not a member of returns `403` with `scope_not_visible`. The client's `default_scope` is a write default only — it does not narrow reads.
+
 ## `top_k`
 
-Defaults: **15** (active) / **25** (deep). Server caps at **30** regardless of what you send.
+Defaults: **15** (active) / **25** (deep). The API accepts 1–50 and caps the effective value at **30**.
 
 | Use case | `top_k` |
 | --- | --- |
@@ -26,42 +41,42 @@ Defaults: **15** (active) / **25** (deep). Server caps at **30** regardless of w
 | Live chat, large context | 8–15 |
 | Summaries / digests | 20–30 |
 
-Larger `top_k` = more `tokens_out` billed.
+Larger `top_k` returns more text, which means more `tokens_out` billed.
 
 ## Confidence
 
-Every recall returns a `confidence ∈ [0, 1]`, calibrated so `P(hits relevant | c) ≈ c`.
-
-| Range | Meaning | Action |
-| --- | --- | --- |
-| ≥ 0.6 | Strong | Use as-is |
-| 0.3 – 0.6 | Useful but uncertain | Use, cite the sources |
-| < 0.3 | Weak | Try `mode="deep"`, or skip memory |
+Every recall returns `confidence ∈ [0, 1]`, derived from the top reranker score. Treat it as a **relative** signal — higher means a stronger top match. It is not a calibrated probability, so pick thresholds from your own data.
 
 ```python
-hits = tex.recall(q=q, session_id=sid)
-if hits.confidence < 0.3:
-    hits = tex.recall(q=q, session_id=sid, mode="deep")
+resp = tex.recall(q=q, session_id=sid)
+if resp.confidence < 0.3:          # tune this threshold on your traffic
+    resp = tex.recall(q=q, session_id=sid, mode="deep")
 ```
 
 ## What's in a hit
 
 ```python
-RecallHit(id, text, score, kind, timestamp)        # turns + observations
-RecallEntity(id, label, score)                     # entities
+RecallHit(id, text, score, kind, timestamp)        # hits.turns, hits.observations
+RecallEntity(id, label, score)                     # hits.entities
 ```
 
-`hits.hits.turns` is what you stuff into a system prompt. `hits.hits.observations` are atomic facts. `hits.hits.entities` are linked things — useful for analytical queries.
+`resp.hits.turns` is what you put in a system prompt. `resp.hits.observations` are the observations attached to turns. `resp.hits.entities` is reserved for linked entities and is currently always empty.
+
+Hit `text` includes the turn's date and role, for example `[Date: 2026-09-14T10:00:00Z] [user] I'm allergic to shellfish.`
+
+## Degraded results
+
+If the active tier fails during a call, recall still returns hits from the remaining tier and sets `active_tier_error` in the response body. In the SDK, read `resp.active_tier_error` (1.2.2+; `resp.raw.get("active_tier_error")` on earlier versions).
 
 ## Timeline
 
 ```python
-hits = tex.recall(q="when did we discuss pricing?",
+resp = tex.recall(q="when did we discuss pricing?",
                   session_id=sid, include_timeline=True)
-print(hits.timeline)   # a pre-rendered chronological summary string
+print(resp.timeline)   # a pre-rendered chronological string, or None
 ```
 
-`timeline` is an `Optional[str]` — drop it into a prompt as-is. It's not iterable.
+`timeline` is an `Optional[str]` — drop it into a prompt as-is.
 
 <Card title="Next: usage and billing" icon="receipt" href="/concepts/usage-billing" horizontal>
   Tokens in / out and quota.

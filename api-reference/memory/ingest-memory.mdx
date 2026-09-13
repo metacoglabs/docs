@@ -4,7 +4,7 @@ description: "Persist conversation turns into memory."
 api: "POST https://api.getmetacognition.com/ingestion/memory"
 ---
 
-The REST equivalent of `tex.conversations.remember(...)`. Active write completes synchronously; passive enrichment runs in the background.
+The REST equivalent of `tex.conversations.remember(...)`. Writes turns to the active tier (recallable immediately) and the long-term store.
 
 ## Headers
 
@@ -15,66 +15,90 @@ Content-Type: application/json
 
 ## Body
 
-```json
-{
-  "scope": {
-    "org_id": "org_...",
-    "user_id": "user_...",
-    "session_id": "chat-1"
-  },
-  "turns": [
+<Tabs>
+  <Tab title="Hierarchical scope">
+    ```json
     {
-      "role": "user",
-      "text": "I'm allergic to shellfish.",
-      "timestamp": "2026-05-08T14:00:00Z"
-    },
-    {
-      "role": "assistant",
-      "text": "Got it.",
-      "timestamp": "2026-05-08T14:00:01Z"
+      "scope": "team:fpa-pod",
+      "session_id": "q3-variance-review",
+      "turns": [
+        {
+          "role": "user",
+          "text": "Travel spend is 12% over plan in EMEA.",
+          "timestamp": "2026-09-14T14:00:00Z",
+          "observations": ["EMEA travel 12% over plan"]
+        }
+      ]
     }
-  ],
-  "options":  { "write_active": true, "write_passive": true },
-  "metadata": { "channel": "support" }
-}
-```
+    ```
+  </Tab>
+  <Tab title="Personal (tenant dict)">
+    ```json
+    {
+      "scope": {
+        "org_id": "acme",
+        "user_id": "alice",
+        "session_id": "chat-1"
+      },
+      "turns": [
+        {"role": "user", "text": "I'm allergic to shellfish.", "timestamp": "2026-09-14T14:00:00Z"},
+        {"role": "assistant", "text": "Got it.", "timestamp": "2026-09-14T14:00:01Z"}
+      ]
+    }
+    ```
+  </Tab>
+</Tabs>
 
-<ParamField body="scope.org_id" type="string" required>
-  Your org id (≥ 1 char). Server uses the JWT's `org_id` claim for tenancy regardless — this field is required for Pydantic validation only.
+<ParamField body="scope" type="string | object" required>
+  Either:
+
+  - **A scope id string** `"<kind>:<value>"` (kinds `user`, `team`, `org`, `project`). Every write is stamped with it. It must be one of your visible scopes, else `403 scope_not_visible`. Org and user come from the token.
+  - **A tenant object** `{org_id, user_id?, session_id?}`. Writes go to your personal `user:<user_id>` scope. `org_id` is required (≥ 1 char) but identity always comes from the token — body values can't change who you write as.
 </ParamField>
 
-<ParamField body="scope.user_id" type="string">
-  End-user partition. Defaults to the JWT's user.
+<ParamField body="session_id" type="string">
+  Session for the string-scope form. The tenant object carries its own `session_id`. Falls back to the token's session, then `"default-session"`.
 </ParamField>
 
-<ParamField body="scope.session_id" type="string">
-  Conversation/channel/task id. Defaults to the JWT's `session_id` if set, else `"default-session"`.
+<ParamField body="agent_id" type="string">
+  Optional agent identifier (1–256 chars) for the active-memory episode. Defaults to `default-agent`, the same default `/recall` uses. Recall only searches the active episodes of the agent it is given.
+</ParamField>
+
+<ParamField body="inactivity_timeout_seconds" type="integer | null">
+  Idle time (300–86,400 seconds) after which this conversation's active-memory episode closes and consolidates into long-term memory. Omitted: your org default ([`/me/settings`](/api-reference/account/settings)), else 1800 (30 minutes). The episode stores the window, so later writes without the field keep it unless an org default applies. Out of range: `422`. See [Inactivity window](/concepts/memory-model#inactivity-window).
 </ParamField>
 
 <ParamField body="turns" type="array" required>
-  At least one turn (`min_length=1`). Each turn: `{role, text, timestamp, observations?}`. See [memory model](/concepts/memory-model).
+  At least one turn. Each turn:
+
+  | Field | Type | Required |
+  | --- | --- | --- |
+  | `role` | `"user"` \| `"assistant"` | ✓ |
+  | `text` | string, non-empty | ✓ |
+  | `timestamp` | ISO 8601 string | ✓ |
+  | `observations` | array of strings | |
 </ParamField>
 
 <ParamField body="options" type="object">
-  Optional dual-write toggles: `{ write_active: bool = true, write_passive: bool = true }`. Disabling either lets advanced callers bypass one of the storage tiers.
+  `{ "write_active": true, "write_passive": true }`. Set either to `false` to skip that tier.
 </ParamField>
 
 <ParamField body="metadata" type="object">
-  Free-form metadata. **Currently stored but not surfaced** in retrieval — reserved for future filters.
+  Free-form. Accepted but currently unused.
 </ParamField>
 
 ## Response — `202 Accepted`
 
 <ResponseField name="job_id" type="string">
-  Stable id for this write.
+  Per-call id for correlating with logs.
 </ResponseField>
 
 <ResponseField name="active_fragment_ids" type="array[string]">
-  Active-memory fragment ids — already recallable.
+  Active-tier fragment ids — each turn, then its observations. Already recallable.
 </ResponseField>
 
 <ResponseField name="passive_job_id" type="string | null">
-  Background enrichment job id, when one is needed.
+  Reserved. Currently always `null`.
 </ResponseField>
 
 <ResponseField name="usage" type="object">
@@ -92,6 +116,15 @@ Content-Type: application/json
 }
 ```
 
+## Errors
+
+| Status | When |
+| --- | --- |
+| `401` | Missing, invalid, or expired token |
+| `403` | `scope_not_visible` — the scope string isn't one of your visible scopes |
+| `422` | Validation — missing `timestamp`, empty `text`, `role` other than `user`/`assistant`, empty `turns`, malformed scope id, `org_id` missing or `null`, `inactivity_timeout_seconds` outside 300–86,400 |
+| `429` | `quota_exceeded` — daily `tokens_in` quota |
+
 ## Example
 
 <CodeGroup>
@@ -100,9 +133,10 @@ curl -X POST https://api.getmetacognition.com/ingestion/memory \
   -H "Authorization: Bearer $JWT" \
   -H 'content-type: application/json' \
   -d '{
-    "scope": {"org_id":"org_…","session_id":"chat-1"},
+    "scope": "user:alice",
+    "session_id": "chat-1",
     "turns": [
-      {"role":"user","text":"hello","timestamp":"2026-05-08T14:00:00Z"}
+      {"role":"user","text":"hello","timestamp":"2026-09-14T14:00:00Z"}
     ]
   }'
 ```
@@ -114,9 +148,10 @@ resp = httpx.post(
     "https://api.getmetacognition.com/ingestion/memory",
     headers={"Authorization": f"Bearer {jwt}"},
     json={
-        "scope": {"org_id": "org_…", "session_id": "chat-1"},
+        "scope": "user:alice",
+        "session_id": "chat-1",
         "turns": [
-            {"role": "user", "text": "hello", "timestamp": "2026-05-08T14:00:00Z"}
+            {"role": "user", "text": "hello", "timestamp": "2026-09-14T14:00:00Z"}
         ],
     },
     timeout=10,
@@ -125,6 +160,6 @@ resp.raise_for_status()
 ```
 </CodeGroup>
 
-## Idempotency
+## Retries
 
-Tex computes a stable hash per turn (`role + text + timestamp`). Re-sending the same turn is a no-op — no duplicate fragments, no double-billing. Safe to retry on network failure.
+The active-tier fragment id is deterministic — derived from the write scope, org, user, session, timestamp, and text — so replaying an identical turn doesn't duplicate active fragments. The long-term write and token metering are **not** deduplicated. Keep the original timestamp when retrying and don't replay batches that already returned `202`.

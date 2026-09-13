@@ -1,0 +1,144 @@
+---
+title: "Documents"
+description: "Add documents, poll processing status, list, update, and delete."
+---
+
+Documents go through Tex's ingestion pipeline (extraction, chunking, indexing) into the long-term store. Adding is asynchronous: you get an id back immediately and poll for status.
+
+## `documents.add`
+
+```python
+tex.documents.add(
+    content: str,
+    *,
+    container_tag: str | None = None,
+    container_tags: list[str] | None = None,
+    custom_id: str | None = None,
+    metadata: dict | None = None,
+    scope: str | None = None,
+) -> AddResponse          # AddResponse(id, status, raw)
+```
+
+`tex.add(...)` is a shortcut with the same signature. Calls `POST /v3/documents`.
+
+<ParamField path="content" type="str" required>
+  The document text (non-empty).
+</ParamField>
+
+<ParamField path="container_tag" type="str | None">
+  Supermemory-style end-user tag. On a [per-user client](/sdk/per-user-clients), omit it or pass the user's own id — any other value returns `403 container_tag_not_permitted`. Must match `^[a-zA-Z0-9_-]+$`, ≤ 100 chars.
+</ParamField>
+
+<ParamField path="custom_id" type="str | None">
+  Your own id, stored in metadata as `customId`. Not used for deduplication.
+</ParamField>
+
+<ParamField path="metadata" type="dict | None">
+  Flat key/value metadata. Nested objects and arrays are dropped.
+</ParamField>
+
+<ParamField path="scope" type="str | None">
+  Write scope, e.g. `"project:budget-cycle-2027"`. Falls back to `default_scope`, then your personal scope. `403 scope_not_visible` if you are not a member.
+</ParamField>
+
+```python
+resp = tex.documents.add(
+    "FY27 budget memo: headcount flat, merit 4%, travel -10% …",
+    scope="project:budget-cycle-2027",
+    custom_id="memo-2026-09-14",
+    metadata={"source": "sharepoint", "author": "alice"},
+)
+print(resp.id, resp.status)   # "doc-…", "queued"
+```
+
+<Warning>
+  `documents.add` is not idempotent — every call creates a new document. On a timeout, check whether the first attempt succeeded before re-sending.
+</Warning>
+
+## `documents.get` — status
+
+```python
+tex.documents.get(id: str, *, container_tag: str | None = None) -> DocumentGetResponse
+```
+
+For ids returned by `documents.add` (`doc-…`), `get` returns the pipeline document with its processing status:
+
+| `status` | Meaning |
+| --- | --- |
+| `queued` | Waiting to start |
+| `extracting` | Parsing the content |
+| `chunking` | Transforming into chunks |
+| `indexing` | Writing records into the long-term store |
+| `done` | Finished |
+| `failed` | Failed after automatic retries of transient errors — see `metadata["ingestionError"]`. Re-add the document to try again |
+| `unknown` | Unrecognised pipeline state |
+
+`metadata` carries `scope`, `ingestionJobId`, `ingestionStep`, `ingestionProgress`, and `ingestionError` when available.
+
+```python
+import time
+
+def wait_for_document(tex, doc_id: str, timeout_s: float = 900) -> str:
+    delay, deadline = 2.0, time.monotonic() + timeout_s
+    while time.monotonic() < deadline:
+        doc = tex.documents.get(doc_id)
+        if doc.status in ("done", "failed"):
+            return doc.status
+        time.sleep(delay)
+        delay = min(delay * 2, 30.0)
+    return "timeout"
+```
+
+<Note>
+  A document that doesn't exist and a document you can't see both return `404` (`NotFoundError`). Visibility follows the document's write scope — a teammate can read a `team:` document, other users can't.
+</Note>
+
+Processing time depends on document size and pipeline load; plan for minutes, not seconds.
+
+## `documents.update` and `documents.delete`
+
+```python
+tex.documents.update(id, *, content=None, container_tag=None, container_tags=None,
+                     custom_id=None, metadata=None, scope=None) -> AddResponse
+tex.documents.delete(id) -> None
+```
+
+<Warning>
+  For pipeline documents (`doc-…` ids), `update` and `delete` return `409` (`ConflictError`): the memories extracted from a document are not attributable to its id. Add a new document instead, or update/delete individual memories with [`memories`](/sdk/memories).
+</Warning>
+
+Other ids are treated as graph node ids.
+
+## `documents.list`
+
+```python
+tex.documents.list(*, container_tags=None, include_content=None, limit=None,
+                   page=None, sort=None, order=None, filters=None) -> DocumentListResponse
+```
+
+Lists memory nodes from the long-term store (`limit` 1–100, default 10; `page` from 1). It does **not** list pipeline documents from `documents.add` — track those ids yourself.
+
+## `documents.batch_add`
+
+```python
+tex.documents.batch_add(documents, *, container_tag=None, container_tags=None,
+                        metadata=None, scope=None) -> DocumentBatchAddResponse
+```
+
+`documents` is a list of `{"content", "customId", "metadata", "containerTag", "scope"}` dicts. The SDK type also allows plain strings, but the server skips anything that isn't a dict with `content`. A per-document `scope` wins over the top-level one; every scope is checked before anything is ingested.
+
+<Note>
+  `resp.results` is the per-document list of `{"id", "status"}`; `resp.success` / `resp.failed` are counted from it. On SDK 1.2.0–1.2.1 these came back empty — read `resp.raw["data"]` there, or upgrade to 1.2.2.
+</Note>
+
+## `documents.delete_bulk`
+
+```python
+tex.documents.delete_bulk(*, ids=None, container_tags=None) -> DocumentDeleteBulkResponse
+```
+
+Deletes graph nodes by id or by container tag. Returns `deleted_count`.
+
+<Card title="Next: Memories" icon="note-sticky" href="/sdk/memories" horizontal>
+  Add, update, and forget short memory items.
+</Card>

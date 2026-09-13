@@ -1,45 +1,47 @@
 ---
 title: "Create account"
-description: "Create a new org and mint the first API key."
+description: "Create a new org and mint its first API key."
 api: "POST https://api.getmetacognition.com/signup"
 ---
 
-Creates a new organization, a default user inside it, and the first API key for that user. The plaintext API key appears in the response **once and only once**.
+Creates a new organization and its first API key. The plaintext API key appears in the response **once and only once**.
 
 ## Body
 
 ```json
 {
-  "org_id": "acme",          // optional; auto-generated when omitted
-  "name":   "acme corp"      // optional; label for the first key
+  "org_id": "acme",
+  "name": "acme production"
 }
 ```
 
 <ParamField body="org_id" type="string">
-  Optional org id. Auto-generated as `org_<10-char base62>` when omitted. Must be **alphanumeric** (with `-` or `_` allowed) and **≤ 64 chars**. Server returns `409 Conflict` if the id already exists.
+  Optional org id. Auto-generated as `org_<random>` when omitted. Letters, digits, `-`, and `_` only; ≤ 64 chars. `409 Conflict` if it already exists.
 </ParamField>
 
 <ParamField body="name" type="string">
-  Human-readable label for the org's first API key. Optional, max 64 chars.
+  Label for the first API key. Optional, ≤ 64 chars.
 </ParamField>
 
 ## Response — `201`
 
 <ResponseField name="org_id" type="string">
-  Server-generated org id. Format `org_<10 chars>`.
+  The org id. Pass it to the SDK as `org_id`.
 </ResponseField>
 
 <ResponseField name="user_id" type="string">
-  Server-generated user id inside that org.
+  A generated id (`user_<random>`). Nothing is bound to it; choose your own user ids for per-user clients.
 </ResponseField>
 
 <ResponseField name="api_key" type="string">
-  The plaintext API key. **Save it now — there's no recovery.**
+  The plaintext API key (`tex_live_…`). **Save it now — there's no recovery.**
 </ResponseField>
 
 <ResponseField name="key" type="object">
-  Metadata about the key (id, prefix, display_id, name, scopes, timestamps).
+  Key metadata: `id`, `prefix`, `display_id`, `name`, `scopes` (`["*"]`), `is_active`, `created_at`, `last_used_at`, `revoked_at`.
 </ResponseField>
+
+The first key has scopes `["*"]`: it can mint per-user tokens and manage the org's keys. Treat it as an owner credential.
 
 ## Example
 
@@ -47,7 +49,7 @@ Creates a new organization, a default user inside it, and the first API key for 
 ```bash cURL
 curl -X POST https://api.getmetacognition.com/signup \
   -H 'content-type: application/json' \
-  -d '{"name": "acme corp"}'
+  -d '{"name": "acme production"}'
 ```
 
 ```python Python
@@ -55,10 +57,12 @@ import httpx
 
 resp = httpx.post(
     "https://api.getmetacognition.com/signup",
-    json={"name": "acme corp"},
+    json={"name": "acme production"},
+    timeout=10,
 )
 data = resp.json()
 api_key = data["api_key"]   # store this securely
+org_id = data["org_id"]
 ```
 </CodeGroup>
 
@@ -71,27 +75,23 @@ api_key = data["api_key"]   # store this securely
     "id": "a1247653-9646-4f32-b04f-72d2c0f5355b",
     "prefix": "tex_live_",
     "display_id": "LfbRIlFW",
-    "name": "acme corp",
+    "name": "acme production",
     "scopes": ["*"],
     "is_active": true,
-    "created_at": "2026-05-08T09:56:42.855738",
+    "created_at": "2026-09-14T09:56:42.855738",
     "last_used_at": null,
     "revoked_at": null
   }
 }
 ```
 
-<Warning>
-  The `api_key` field appears only in this response. Persist it server-side. We can't recover or re-display it.
-</Warning>
-
 <Note>
-  This endpoint is unauthenticated by design — anyone can create an org. To gate it (e.g. private launch), put your existing auth provider in front (Auth0, Clerk) and only forward to `/signup` after their checks pass.
+  This endpoint is unauthenticated — anyone can create an org.
 </Note>
 
 ## Errors
 
 | Status | When |
 | --- | --- |
-| `409 Conflict` | The `org_id` you supplied is already in use, or hash collision on key minting. |
-| `422 Unprocessable Entity` | `org_id` failed the alphanumeric / length validation. |
+| `409 Conflict` | The `org_id` you supplied is already in use. |
+| `422 Unprocessable Entity` | `org_id` or `name` failed validation. |

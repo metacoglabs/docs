@@ -1,0 +1,91 @@
+---
+title: "Memories"
+description: "Add, version, and forget short memory items (Supermemory-compatible)."
+---
+
+Memories are short facts — "prefers the driver-based forecast model" — written directly, without a conversation. They are stored in the long-term store and, best-effort, in the active tier. Calls `/v4/memories`.
+
+## `memories.add`
+
+```python
+tex.memories.add(
+    memories: list[dict],
+    *,
+    container_tag: str | None = None,
+    scope: str | None = None,
+    inactivity_timeout_seconds: int | None = None,   # 1.2.1+
+) -> MemoryWriteResponse     # MemoryWriteResponse(document_id, memories, raw)
+```
+
+Each item: `{"content": str, "isStatic": bool (optional), "metadata": dict (optional, flat)}`. Items without `content` are skipped; if none remain the server returns `400`.
+
+```python
+resp = tex.memories.add(
+    [
+        {"content": "FP&A pod uses the driver-based forecast model for FY27"},
+        {"content": "Alice owns the EMEA travel budget", "metadata": {"region": "emea"}},
+    ],
+    scope="team:fpa-pod",
+)
+for m in resp.memories:
+    print(m.id, m.memory)
+```
+
+`memories.add` creates new ids on every call — it is not idempotent.
+
+`inactivity_timeout_seconds` (SDK 1.2.1+, 300–86,400) sets the [inactivity window](/concepts/memory-model#inactivity-window) of the active-tier episode these memories are written to; it is sent as `inactivityTimeoutSeconds`.
+
+## `memories.update_memory`
+
+```python
+tex.memories.update_memory(
+    container_tag: str | None = None,
+    new_content: str | None = None,
+    *,
+    id: str | None = None,
+    content: str | None = None,
+    metadata: dict | None = None,
+    scope: str | None = None,
+    inactivity_timeout_seconds: int | None = None,   # 1.2.1+
+) -> MemoryUpdateResponse   # id, memory, version, parent_memory_id, root_memory_id, created_at
+```
+
+Creates a new version pointing at the original. Identify the original by `id`, or by exact `content`. `new_content` is required.
+
+```python
+tex.memories.update_memory(new_content="Alice and Bob own the EMEA travel budget",
+                           id="3f0c…")
+```
+
+## `memories.forget`
+
+```python
+tex.memories.forget(
+    container_tag: str | None = None,
+    *,
+    id: str | None = None,
+    content: str | None = None,
+    reason: str | None = None,
+) -> MemoryForgetResponse   # id, forgotten
+```
+
+Soft-deletes a memory by `id` or exact `content`. `404` if not found.
+
+```python
+tex.memories.forget(id="3f0c…", reason="superseded")
+```
+
+## `container_tag`
+
+- **Key-only client** (`Tex(api_key=...)`): `container_tag` selects the end user the call acts for.
+- **Per-user client**: omit it or pass the user's own id; anything else is `403 container_tag_not_permitted`.
+
+Tags must match `^[a-zA-Z0-9_-]+$` and be ≤ 100 chars.
+
+## Reading memories back
+
+Use [`search.memories`](/sdk/search) to search what you added here. `recall` is built for conversation turns from `remember`.
+
+<Card title="Next: Search" icon="magnifying-glass" href="/sdk/search" horizontal>
+  Document and memory search.
+</Card>

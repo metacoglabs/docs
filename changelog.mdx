@@ -3,24 +3,71 @@ title: "Changelog"
 description: "What's new in the Tex SDK."
 ---
 
+## 1.2.2 — 2026-09-14
+
+**Fixes**
+
+- `remember` and `recall` without `scope=` no longer send `org_id: null` on a client's first call. The SDK signs in first and takes `org_id` / `user_id` from the client, `/auth/verify`, or the token's claims — so `Tex(api_key=...)` without `org_id`, and `Tex(access_token=...)`, work on the first call. If neither id can be resolved, it raises `AuthenticationError` instead of sending a request that fails with `422`.
+- `documents.batch_add` parses the server's list response: `resp.results`, `resp.success` and `resp.failed` are populated.
+- `RecallResponse.active_tier_error` — set when the active tier failed and hits came only from the remaining tier.
+- The `recall` docstring now says `mode="active"` reads the active tier only; `mode="deep"` adds long-term vector search.
+
+**More reliable document ingestion**
+
+- Document ingestion now retries transient failures at the processing provider automatically, server-side. No SDK API changes.
+- A document that still fails reports the reason in its status: `documents.get(id).status == "failed"` with the reason in `metadata["ingestionError"]`. Re-add the document to try again.
+
+## 1.2.1 — 2026-09-14
+
+**Configurable inactivity window**
+
+- An active-memory episode closes and consolidates into long-term memory after its inactivity window — previously a fixed 30 minutes.
+- `conversations.remember(..., inactivity_timeout_seconds=7200)` sets it per conversation; also on `memories.add` and `memories.update_memory`.
+- `Tex(active_inactivity_timeout_seconds=...)` (and `TexConfig.active_inactivity_timeout_seconds`) sets a client-wide default. The per-call value wins; with neither, your org default applies (org admins: `PATCH /me/settings`), else 30 minutes.
+- Bounds 300–86,400 seconds. Invalid values raise `InvalidInactivityTimeoutError` (a `ValueError`) before any request.
+
+The API accepts the window on `/ingestion/memory` (`inactivity_timeout_seconds`) and `/v4/memories` (`inactivityTimeoutSeconds`) for any client, including raw HTTP. See [Inactivity window](/concepts/memory-model#inactivity-window).
+
+## 1.2.0 — 2026-09-13
+
+**Hierarchical scopes**
+
+- `scope="team:eng"` (also `user:`, `org:`, `project:`) on `documents.add`, `memories.add`, `conversations.remember`, and the other write methods. Writes land in your personal scope by default; a scope you are not a member of returns `403`.
+- `default_scope` on the client — a write default for every call without its own `scope`.
+- Scoped reads: `tex.recall(q, session_id=..., scope="team:eng")` narrows recall to one visible scope. Without it, recall spans every scope you can see.
+- `InvalidScopeError` for malformed scope ids, raised before any request.
+
+**Per-user clients work against production**
+
+- `Tex(api_key=..., user_id="alice")` now mints the user's token with a single `/auth/token-exchange` call carrying `user_id`. The key needs an impersonation-capable scope such as `impersonate_user`. Previously the SDK called `/auth/login`, which production rejects with `403`.
+- Refresh re-exchanges for the same user, and the returned identity is verified.
+- Supermemory-compatible calls (`documents.*`, `memories.*`, `search.*`, `profile`) send the per-user token, so team-scoped writes and scoped reads work. A `container_tag` naming a different user is rejected with `403`.
+- Clearer errors for keys without an impersonation scope and for `/auth/login` on production servers.
+
+**Known issues (fixed in 1.2.2)**
+
+- `remember` and `recall` without `scope=` send `org_id: null` on a client's first call when the client was built without `org_id`, which returns `422`. Pass `org_id` to `Tex(...)`.
+- `documents.batch_add` returns an empty `DocumentBatchAddResponse`; per-document results are in `resp.raw["data"]`.
+- `RecallResponse` has no `active_tier_error` attribute; read `resp.raw.get("active_tier_error")`.
+
 ## 1.1.0 — 2026-05
 
 **Token-based metering**
 
-- New `tex.usage.today()` and `tex.usage.summary(month=...)` methods.
-- Every `remember` and `recall` response now carries a `usage` field with `tokens_in` and `tokens_out`.
-- Daily quotas enforced at the engine — `RateLimitError` on exceed.
+- `tex.usage.today()` and `tex.usage.summary(month=...)`.
+- `remember` and `recall` responses carry `usage` with `tokens_in` and `tokens_out`.
+- Daily quotas enforced — `RateLimitError` when exceeded.
 
 **Conversation-native verbs**
 
-- `tex.conversations.remember(turns=..., session_id=...)` for first-class turn ingestion.
-- `tex.recall(q=..., session_id=..., mode="active"|"deep")` with confidence scoring and optional timeline.
+- `tex.conversations.remember(turns, session_id=...)` for first-class turn ingestion.
+- `tex.recall(q, session_id=..., mode="active"|"deep")` with confidence scoring and optional timeline.
 
 **Improvements**
 
-- HTTP/2 enabled by default for ~25% lower tail latency on recall.
+- HTTP/2 enabled by default (install `tex-sdk[http2]`; falls back to HTTP/1.1 without `h2`).
 - Automatic JWT refresh on 401, with single-retry semantics.
-- Stable type stubs (`py.typed`) shipped with the wheel.
+- Type information (`py.typed`) shipped with the wheel.
 
 ## 1.0.0 — 2026-03
 
@@ -28,25 +75,13 @@ Initial public release. Supermemory-compatible verbs (`add`, `search`, `profile`
 
 ---
 
-## Roadmap
+## Coming soon
 
 <CardGroup cols={2}>
   <Card title="Async client" icon="bolt">
-    Native async methods on a parallel `AsyncTex` class. Same API surface, awaitable. Targeting Q3.
-  </Card>
-  <Card title="Per-call user scoping" icon="users">
-    `tex.recall(..., user_id=...)` without constructing a new client. Targeting 1.2.
+    Native async methods with the same API surface.
   </Card>
   <Card title="TypeScript SDK" icon="square-js">
-    First-class TS client mirroring the Python API. Targeting Q3.
-  </Card>
-  <Card title="Webhook ingestion" icon="webhook">
-    Stream turns from your event bus directly into memory. Targeting Q4.
-  </Card>
-  <Card title="Server-side quota alerts" icon="bell">
-    Email notifications at 80% / 100% of either daily cap. Targeting 1.2.
-  </Card>
-  <Card title="Scoped API keys" icon="key">
-    `read` / `write` / `usage:read` scopes for principle-of-least-privilege keys.
+    A first-class TS client mirroring the Python API.
   </Card>
 </CardGroup>

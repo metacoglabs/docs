@@ -15,44 +15,53 @@ Tex(
     session_id: str | None = None,
     access_token: str | None = None,
     refresh_token: str | None = None,
-    timeout: float = 60.0,
-    max_retries: int = 2,
+    default_scope: str | None = None,
+    active_inactivity_timeout_seconds: int | None = None,   # 1.2.1+
+    timeout: float | None = None,       # 60.0 when omitted
+    max_retries: int | None = None,     # 2 when omitted
     http2: bool = True,
+    config: TexConfig | None = None,
 )
 ```
 
-<ParamField path="api_key" type="str">
-  Your API key. Falls back to `TEX_API_KEY` env var.
+<ParamField path="api_key" type="str | None">
+  Your API key. Falls back to the `TEX_API_KEY` env var. Keep it server-side.
 </ParamField>
 
-<ParamField path="base_url" type="str">
-  Base URL of the Tex API. Falls back to `TEX_BASE_URL`. Required for production:
-
-  - `https://api.getmetacognition.com`
+<ParamField path="base_url" type="str" required>
+  Base URL of the Tex API. Falls back to `TEX_BASE_URL`. There is no default — the constructor raises `ValueError` without one. Production: `https://api.getmetacognition.com`.
 </ParamField>
 
 <ParamField path="org_id" type="str | None">
-  Default `org_id` for all requests. Optional — the SDK auto-fills from your JWT.
+  Your org id. Optional in SDK 1.2.2+ (resolved from the token when omitted); **required on 1.2.0–1.2.1**, where a client built without it gets `422` on its first `remember` / `recall`. With `api_key` + `user_id`, the SDK also checks the key belongs to this org.
 </ParamField>
 
 <ParamField path="user_id" type="str | None">
-  Default `user_id`. Set this for end-user partitioning in multi-tenant SaaS.
+  The end user this client acts for. With `api_key`, the SDK exchanges the key for a token minted for this user (the key needs an impersonation scope such as `impersonate_user`). See [Per-user clients](/sdk/per-user-clients).
 </ParamField>
 
 <ParamField path="session_id" type="str | None">
-  A default `session_id`. You usually pass this per-call instead.
+  Optional session id sent with the token exchange. You usually pass `session_id` per call instead.
 </ParamField>
 
 <ParamField path="access_token" type="str | None">
-  Bring-your-own JWT. If set, the SDK skips the `api_key` exchange.
+  A token minted elsewhere (for example by your token broker). Takes priority over `api_key`.
 
   <Warning>
-    With BYO-JWT, the SDK does **not** auto-fill `org_id` / `user_id` from `/auth/verify`. Pass them explicitly to the constructor — `remember` and `recall` need them in the request `scope`.
+    With `access_token`, the SDK never fills `org_id` / `user_id` from `/auth/verify`. Pass both to the constructor.
   </Warning>
 </ParamField>
 
 <ParamField path="refresh_token" type="str | None">
-  Companion to `access_token` — used for transparent refresh on 401.
+  Companion to `access_token` — used for a refresh on `401`. Without it (and without `api_key`), an expired token raises `AuthenticationError`.
+</ParamField>
+
+<ParamField path="default_scope" type="str | None">
+  Hierarchical write scope for every write that doesn't pass its own `scope`, e.g. `"team:fpa-pod"`. Shape-checked at construction (`InvalidScopeError`). Does not narrow reads. See [Scopes](/sdk/scopes).
+</ParamField>
+
+<ParamField path="active_inactivity_timeout_seconds" type="int | None">
+  **SDK 1.2.1+.** Default [inactivity window](/concepts/memory-model#inactivity-window) for `conversations.remember`, `memories.add`, and `memories.update_memory` calls that don't pass their own `inactivity_timeout_seconds`. 300–86,400 seconds; checked at construction (`InvalidInactivityTimeoutError`). Omitted: your org default, else 30 minutes.
 </ParamField>
 
 <ParamField path="timeout" type="float" default="60.0">
@@ -60,50 +69,54 @@ Tex(
 </ParamField>
 
 <ParamField path="max_retries" type="int" default="2">
-  Retries on transient errors (408 / 429 / 5xx / network). Exponential backoff.
+  Retries on `408` / `429` / `500` / `502` / `503` / `504`, timeouts, and network errors. Exponential backoff (0.5s, 1s, …), honoring `Retry-After`.
 </ParamField>
 
 <ParamField path="http2" type="bool" default="true">
-  HTTP/2 multiplexing. Disable if your egress proxy strips it.
+  HTTP/2. Needs `tex-sdk[http2]`; falls back to HTTP/1.1 when `h2` isn't installed.
+</ParamField>
+
+<ParamField path="config" type="TexConfig | None">
+  A full `TexConfig` (including `TexEndpoints` path overrides). When given, the other arguments and env vars are ignored.
 </ParamField>
 
 ## Environment variables
 
 | Variable | Purpose |
 | --- | --- |
-| `TEX_API_KEY` | Read by the constructor when `api_key=` is omitted. |
-| `TEX_BASE_URL` | Read by the constructor when `base_url=` is omitted. |
-
-A `.env` template:
+| `TEX_API_KEY` | Read when `api_key=` is omitted. |
+| `TEX_BASE_URL` | Read when `base_url=` is omitted. |
 
 ```bash
 TEX_API_KEY=tex_live_xxxxxxxxxxxxxxxxxxxxxxxx
 TEX_BASE_URL=https://api.getmetacognition.com
+TEX_ORG_ID=org_xxxxxxxx   # not read by the SDK — pass it as org_id=
 ```
 
 ## Lifecycle
 
-The client maintains a pooled `httpx.Client` under the hood. **Construct once, reuse everywhere.**
+The client holds a pooled `httpx.Client` and its tokens. **Construct once per identity, reuse.**
 
 <Tabs>
   <Tab title="✅ Module-level">
     ```python
     # settings.py
+    import os
     from functools import cache
     from tex import Tex
-    import os
 
     @cache
     def tex() -> Tex:
         return Tex(
             api_key=os.environ["TEX_API_KEY"],
             base_url=os.environ["TEX_BASE_URL"],
+            org_id=os.environ["TEX_ORG_ID"],
         )
     ```
   </Tab>
   <Tab title="✅ Context manager">
     ```python
-    with Tex(api_key=...) as tex:
+    with Tex(api_key=..., base_url=..., org_id=...) as tex:
         tex.recall(q="...", session_id="...")
     # connection is closed on exit
     ```
@@ -112,28 +125,26 @@ The client maintains a pooled `httpx.Client` under the hood. **Construct once, r
     ```python
     @app.post("/chat")
     def chat(req):
-        tex = Tex(api_key=...)   # opens a new TLS session every request
-        return tex.recall(...)
+        tex = Tex(api_key=..., base_url=..., org_id=...)   # new TLS session + token exchange every request
+        return tex.recall(req.q, session_id=req.session_id)
     ```
-    This costs you the TCP+TLS handshake on every call.
+    This costs a TCP+TLS handshake and a token exchange on every call. For per-user clients, cache one client per user — see [Per-user clients](/sdk/per-user-clients).
   </Tab>
 </Tabs>
 
 ## Concurrency
 
-The client is **thread-safe for read traffic** (`recall`, `usage.today`).
-
-For write traffic under high RPS, push to a worker pool:
+The client is synchronous. It keeps token state on the instance and does not lock around refresh, so avoid sharing one instance across many threads at high write volume; a small pool of clients (or one per worker) is safer. For background writes:
 
 ```python
 from concurrent.futures import ThreadPoolExecutor
-pool = ThreadPoolExecutor(max_workers=16)
+pool = ThreadPoolExecutor(max_workers=4)
 
 def remember_async(turns, sid):
-    pool.submit(tex.conversations.remember, turns=turns, session_id=sid)
+    pool.submit(tex.conversations.remember, turns, session_id=sid)
 ```
 
-A native async client is on the roadmap. Open an issue if you need it sooner.
+There is no async client yet.
 
 ## Closing
 

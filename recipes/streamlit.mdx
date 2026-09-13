@@ -1,9 +1,9 @@
 ---
 title: "Chat UI (Streamlit)"
-description: "A chat UI with persistent memory in 50 lines."
+description: "A chat UI with persistent memory in about 60 lines."
 ---
 
-A single-page Streamlit chat that uses Tex for memory across page reloads, browser refreshes, and even cleared sessions.
+A single-page Streamlit chat that uses Tex for memory across page reloads and cleared browser sessions.
 
 ## Install
 
@@ -14,42 +14,51 @@ pip install tex-sdk streamlit openai
 ## Code
 
 ```python app.py
-import os, datetime
+import os
+from datetime import datetime, timezone
+
 import streamlit as st
 from openai import OpenAI
 from tex import Tex
 
 st.set_page_config(page_title="Tex chat", page_icon="🧠")
 
+# Demo only: identity from the URL. In a real app, use your authenticated user id.
+uid = st.query_params.get("uid", "anon")
+
+
 @st.cache_resource
-def get_clients():
-    tex = Tex(
+def tex_for(user_id: str) -> Tex:
+    # One Tex identity per user — session_id alone does not isolate users.
+    return Tex(
         api_key=os.environ["TEX_API_KEY"],
         base_url=os.environ.get("TEX_BASE_URL", "https://api.getmetacognition.com"),
+        org_id=os.environ["TEX_ORG_ID"],   # required on SDK 1.2.0–1.2.1; recommended on 1.2.2+
+        user_id=user_id,
     )
-    gpt = OpenAI()  # or AzureOpenAI(...)
-    return tex, gpt
 
-tex, gpt = get_clients()
 
-# Stable session for the browser tab — survives reloads
-if "sid" not in st.session_state:
-    st.session_state.sid = f"web-{st.query_params.get('uid', 'anon')}-default"
-sid = st.session_state.sid
+@st.cache_resource
+def get_gpt() -> OpenAI:
+    return OpenAI()  # or AzureOpenAI(...)
 
-# Chat history we display this page render only — Tex is the source of truth
+
+tex, gpt = tex_for(uid), get_gpt()
+sid = f"web-{uid}-default"
+
+# Chat history displayed on this page render only — Tex is the source of truth
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
-# Sidebar: usage + memory stats
+# Sidebar: org usage
 with st.sidebar:
     st.write("## Usage today")
     today = tex.usage.today()
-    pct_in  = min(1.0, today.tokens_in_used  / max(1, today.tokens_in_limit))
+    pct_in = min(1.0, today.tokens_in_used / max(1, today.tokens_in_limit))
     pct_out = min(1.0, today.tokens_out_used / max(1, today.tokens_out_limit))
-    st.progress(pct_in,  f"in:  {today.tokens_in_used:,} / {today.tokens_in_limit:,}")
+    st.progress(pct_in, f"in:  {today.tokens_in_used:,} / {today.tokens_in_limit:,}")
     st.progress(pct_out, f"out: {today.tokens_out_used:,} / {today.tokens_out_limit:,}")
-    st.caption(f"session: `{sid}`")
+    st.caption(f"user: `{uid}` · session: `{sid}`")
 
 # Render chat
 for m in st.session_state.messages:
@@ -58,18 +67,20 @@ for m in st.session_state.messages:
 
 # Input
 if prompt := st.chat_input("Talk to me…"):
-    now = datetime.datetime.utcnow().isoformat() + "Z"
+    now = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
     with st.chat_message("user"):
         st.write(prompt)
 
     with st.chat_message("assistant"):
-        # Recall
         with st.spinner("Recalling…"):
-            hits = tex.recall(q=prompt, session_id=sid, top_k=5)
+            hits = tex.recall(prompt, session_id=sid, top_k=5)
+            if not hits.hits.turns:
+                # Conversations idle past their inactivity window (30 min by default) are consolidated into long-term memory
+                hits = tex.recall(prompt, session_id=sid, top_k=5, mode="deep")
 
         if hits.hits.turns:
-            st.caption(f"📚 confidence {hits.confidence:.2f}")
+            st.caption(f"📚 confidence {hits.confidence:.2f} · mode {hits.mode}")
             with st.expander("Memory used"):
                 for h in hits.hits.turns:
                     st.write(f"`{h.score:.2f}` — {h.text}")
@@ -77,40 +88,51 @@ if prompt := st.chat_input("Talk to me…"):
         memory_block = "\n".join(f"- {h.text}" for h in hits.hits.turns)
         sys_prompt = f"You are a thoughtful assistant. Memory:\n{memory_block}"
 
-        # Generate
         chat = gpt.chat.completions.create(
             model="gpt-4o-mini",
             messages=[
                 {"role": "system", "content": sys_prompt},
-                {"role": "user",   "content": prompt},
+                {"role": "user", "content": prompt},
             ],
             stream=True,
         )
-        answer = st.write_stream(chunk.choices[0].delta.content or "" for chunk in chat)
+        answer = st.write_stream(
+            (chunk.choices[0].delta.content or "") for chunk in chat if chunk.choices
+        )
 
     # Persist + update local state
-    tex.conversations.remember(session_id=sid, turns=[
-        {"role":"user","text": prompt, "timestamp": now},
-        {"role":"assistant","text": answer, "timestamp": now},
-    ])
+    tex.conversations.remember(
+        [
+            {"role": "user", "text": prompt, "timestamp": now},
+            {"role": "assistant", "text": answer,
+             "timestamp": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")},
+        ],
+        session_id=sid,
+    )
     st.session_state.messages += [
-        {"role":"user","text": prompt},
-        {"role":"assistant","text": answer},
+        {"role": "user", "text": prompt},
+        {"role": "assistant", "text": answer},
     ]
 ```
 
 ## Run
 
 ```bash
-export TEX_API_KEY=tex_live_...
+export TEX_API_KEY=tex_live_...   # needs an impersonation scope (impersonate_user, or an owner "*" key)
+export TEX_ORG_ID=org_...
 export OPENAI_API_KEY=sk-...
 streamlit run app.py
 ```
 
-Open with `?uid=alice` in the URL to scope memory to "alice" — `?uid=bob` gets a separate memory pool.
+Open with `?uid=alice` to use alice's memory. `?uid=bob` gets a separate memory pool, because each uid is its own Tex identity.
+
+<Warning>
+  The `?uid=` switch is a demo shortcut. Anyone who changes the URL becomes that user. In production, take the user id from your login system.
+</Warning>
 
 ## Why this works
 
-- **Refresh-proof** — Streamlit's session state dies on refresh; Tex doesn't.
-- **No glue code** — no Postgres / Redis layer for chat history.
-- **Built-in debug panel** — the expander shows exactly which memory items the model saw.
+- **Refresh-proof.** Streamlit's session state is lost on refresh; Tex memory is not.
+- **Recent and old memory.** `active` recall covers conversations written within the inactivity window (30 minutes by default). The `deep` fallback reaches consolidated long-term memory.
+- **No glue code.** You don't need a Postgres or Redis layer for chat history.
+- **Built-in debug panel.** The expander shows which memory items the model saw.

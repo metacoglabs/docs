@@ -1,0 +1,84 @@
+---
+title: "Org settings"
+description: "Read and set org-wide defaults, such as the active-memory inactivity window."
+---
+
+Org settings apply to every user in your org. Both endpoints require an **org admin** token: exchanged **without** `user_id` from a key with `admin` or `*`. Per-user tokens are refused with `403`.
+
+## `GET /me/settings`
+
+```http
+GET /me/settings
+Authorization: Bearer <org_admin_token>
+```
+
+### Response — `200`
+
+```json
+{
+  "org_id": "acme",
+  "active_memory_inactivity_seconds": 3600,
+  "active_memory_inactivity_default_seconds": 1800,
+  "active_memory_inactivity_bounds": {"min_seconds": 300, "max_seconds": 86400}
+}
+```
+
+<ResponseField name="active_memory_inactivity_seconds" type="integer | null">
+  The org's default [inactivity window](/concepts/memory-model#inactivity-window) in seconds. `null` means the system default applies.
+</ResponseField>
+
+<ResponseField name="active_memory_inactivity_default_seconds" type="integer">
+  The system default: `1800` (30 minutes).
+</ResponseField>
+
+<ResponseField name="active_memory_inactivity_bounds" type="object">
+  Allowed range: `{"min_seconds": 300, "max_seconds": 86400}`.
+</ResponseField>
+
+## `PATCH /me/settings`
+
+Partial update. Fields you omit are unchanged; `null` resets a setting to the system default.
+
+```http
+PATCH /me/settings
+Authorization: Bearer <org_admin_token>
+Content-Type: application/json
+```
+
+```json
+{"active_memory_inactivity_seconds": 3600}
+```
+
+<ParamField body="active_memory_inactivity_seconds" type="integer | null">
+  Org default inactivity window, 300–86,400 seconds, or `null` to reset. A write's own `inactivity_timeout_seconds` overrides it.
+</ParamField>
+
+Returns `200` with the same shape as `GET`. Unknown fields return `422`.
+
+The new default applies to writes made after the change. Writes that don't carry their own window then send the org default, which replaces the window stored on an open episode.
+
+## Errors
+
+| Status | When |
+| --- | --- |
+| `401` | Missing or invalid token |
+| `403` | Per-user token, or a key without `admin` / `*` |
+| `422` | Value outside 300–86,400, not an integer, or unknown field |
+
+## Example
+
+```bash
+# Exchange an org-admin key without user_id
+ADMIN_JWT=$(curl -s -X POST https://api.getmetacognition.com/auth/token-exchange \
+  -H 'content-type: application/json' -d "{\"api_key\":\"$TEX_OWNER_KEY\"}" | jq -r .access_token)
+
+# Set a 1-hour org default
+curl -X PATCH https://api.getmetacognition.com/me/settings \
+  -H "Authorization: Bearer $ADMIN_JWT" -H 'content-type: application/json' \
+  -d '{"active_memory_inactivity_seconds": 3600}'
+
+# Reset to the system default
+curl -X PATCH https://api.getmetacognition.com/me/settings \
+  -H "Authorization: Bearer $ADMIN_JWT" -H 'content-type: application/json' \
+  -d '{"active_memory_inactivity_seconds": null}'
+```

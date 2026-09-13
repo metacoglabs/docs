@@ -1,108 +1,144 @@
 ---
 title: "Multi-tenant SaaS"
-description: "One Tex key, partitioned per end-user."
+description: "One Tex key, one isolated memory per end user."
 ---
 
-You're building a product where each of your customers has their own private memory. Two patterns; almost everyone wants Pattern A.
+You're building a product where each customer or end user has private memory. Most teams want Pattern A.
 
-## Pattern A — one Tex key, encode end-user into session (recommended)
+<Warning>
+  **Don't partition end users by `session_id`.** A key-only client (`Tex(api_key=...)` without `user_id`) acts as a single identity. `recall` searches everything that identity can see, whatever `session_id` you pass. Encoding the end user into `session_id` mixes every user's memory together and lets any user recall it all.
+</Warning>
 
-You hold a single Tex API key in your secrets manager. End-users are partitioned by encoding their id into the `session_id` you pass on each call. One shared, long-lived client serves all your traffic.
+## Pattern A — one key, per-user clients (recommended)
+
+You hold one Tex API key in your secrets manager. For each end user, build a client with `user_id=` and cache it. The SDK makes one `POST /auth/token-exchange` for that user and gets a token bound to them. Every call on that client — `remember`, `recall`, `documents.*`, `memories.*`, `search.*` — then acts as that user only.
+
+The key needs an **impersonation scope**, normally `impersonate_user`. Owner keys with `"*"` also qualify. Without one, the SDK raises `PermissionDeniedError`. See [Per-user clients](/sdk/per-user-clients).
 
 ```python deps.py
-from functools import cache
-from tex import Tex
 import os
+from functools import lru_cache
 
-@cache
-def shared_tex() -> Tex:
+from tex import Tex
+
+
+@lru_cache(maxsize=4096)
+def tex_for_user(user_id: str) -> Tex:
     return Tex(
         api_key=os.environ["TEX_API_KEY"],
         base_url=os.environ["TEX_BASE_URL"],
+        org_id=os.environ["TEX_ORG_ID"],   # required on SDK 1.2.0–1.2.1; recommended on 1.2.2+; must match the key's org
+        user_id=user_id,
     )
 ```
 
 ```python chat.py
-from fastapi import APIRouter, Header
-from .deps import shared_tex
+from fastapi import APIRouter, Depends
+from .deps import tex_for_user
 
 router = APIRouter()
 
-@router.post("/chat")
-def chat(body: ChatBody, x_user_id: str = Header(...)):
-    tex = shared_tex()
-    sid = f"u_{x_user_id}-{body.session_id}"   # user-scoped session
 
-    hits = tex.recall(q=body.text, session_id=sid)
+@router.post("/chat")
+def chat(body: ChatBody, user=Depends(current_user)):   # your auth dependency
+    tex = tex_for_user(user.id)          # isolation comes from the identity
+    sid = body.session_id                # session_id just groups one conversation
+
+    hits = tex.recall(body.text, session_id=sid)
     answer = your_llm(body.text, memory=hits)
-    tex.conversations.remember(session_id=sid, turns=[...])
+    tex.conversations.remember(turns, session_id=sid)
     return {"answer": answer}
 ```
 
 | Trait | Pattern A |
 | --- | --- |
-| Number of Tex keys to manage | 1 |
-| Bills | 1 (yours) |
-| Dashboard access for end-users | None (you build your own UI) |
-| Memory isolation | By `session_id` prefix — strict, no cross-talk |
-| Latency | Best (one warm client, no per-user TLS) |
+| Tex keys to manage | 1 (server-side only) |
+| Memory isolation | Per Tex user identity. A per-user token can't act for anyone else. |
+| Sharing | Opt-in, through [scopes](/sdk/scopes) (`team:`, `project:`, `org:`) |
+| Quota | Shared: one org, one daily quota |
+| Cost of isolation | One token exchange per cached client |
 
 <Note>
-  The Tex constructor also accepts `user_id=...`, which sends the value as `scope.user_id` in the request body. That works today, but **the SDK scopes `user_id` per client, not per call** — using it for per-end-user partitioning would force one `Tex` instance per end-user, which is slow. Per-call `user_id` scoping is on the SDK roadmap (1.2). Until then, encode the end-user into `session_id`.
+  Use stable, opaque user ids made of `[A-Za-z0-9_-]`, such as your database UUIDs. On Supermemory-compatible calls, a per-user client's `container_tag` must be omitted or equal that user id. Naming a different user returns `403 container_tag_not_permitted`.
 </Note>
 
-## Pattern B — one Tex key per end-user
+<Warning>
+  An impersonation-capable key can mint a token for **any** user in your org. Keep it on your servers and never ship it to browsers or devices. For client-side apps, have your backend hand out short-lived per-user tokens. See the [ReM integration guide](/integrations/rem).
+</Warning>
 
-You're *reselling* Tex — your customers want to log into our dashboard with their own account, see their own usage, get their own bill.
+### Shared memory between users
+
+Write into a shared scope and grant memberships:
+
+```python
+tex_for_user("alice").conversations.remember(turns, session_id=sid, scope="team:support")
+tex_for_user("bob").recall("refund policy?", session_id="s-9")                       # sees team:support if bob is a member
+tex_for_user("bob").recall("refund policy?", session_id="s-9", scope="team:support")  # narrow to that scope
+```
+
+A write or narrowed read into a scope the user isn't a member of returns `403 scope_not_visible`. Memberships are managed with `POST /admin/scope-memberships`. See [Scopes](/sdk/scopes).
+
+## Pattern B — one Tex org per end customer
+
+Use this when each customer needs a hard org boundary, with separate quotas and separate keys.
 
 ```python signup.py
 import httpx
 
-def onboard_end_user(end_user_email: str) -> str:
-    """Mint a fresh Tex org for this end-user. Persist the key in your DB."""
+
+def onboard_customer(label: str) -> dict:
+    """Create a fresh Tex org for this customer. Persist org_id + key in your DB."""
     resp = httpx.post(
         "https://api.getmetacognition.com/signup",
-        json={"name": end_user_email},
+        json={"name": label},
     )
     resp.raise_for_status()
-    data = resp.json()
-    db.users.update(end_user_email, tex_api_key=data["api_key"], tex_org_id=data["org_id"])
-    return data["api_key"]
+    data = resp.json()            # api_key is shown once — store it encrypted
+    db.customers.update(label, tex_api_key=data["api_key"], tex_org_id=data["org_id"])
+    return data
 ```
 
-Then per-request, look up that user's key:
+Then, per request, look up that customer's key and org and build per-user clients inside it, exactly as in Pattern A:
 
 ```python
-def tex_for_user(end_user_id: str) -> Tex:
-    row = db.users.get(end_user_id)
-    return Tex(api_key=row.tex_api_key, base_url=os.environ["TEX_BASE_URL"])
+def tex_for(customer_id: str, user_id: str) -> Tex:
+    row = db.customers.get(customer_id)
+    return Tex(
+        api_key=row.tex_api_key,
+        base_url=os.environ["TEX_BASE_URL"],
+        org_id=row.tex_org_id,
+        user_id=user_id,
+    )
 ```
 
-Cache the `Tex` per user-id in a TTL'd dict (≤ 1h) so you reuse connections without keeping every user's client live forever.
+Cache clients per `(customer_id, user_id)` in a TTL'd dict so you reuse connections.
 
 | Trait | Pattern B |
 | --- | --- |
-| Number of Tex keys to manage | One per end-user — store in your DB. |
-| Bills | One per end-user (we send each org an invoice). |
-| Dashboard access | Each end-user has their own dashboard login. |
-| Memory isolation | At the org level — completely separate. |
+| Tex keys to manage | One per customer, stored in your DB |
+| Memory isolation | Org boundary plus per-user identities inside it |
+| Quota | Separate daily quota per org |
+
+<Note>
+  `/signup` is an open endpoint. Put your own auth and abuse checks in front of any flow that calls it.
+</Note>
 
 ## Picking
 
 <CardGroup cols={2}>
   <Card title="Pattern A" icon="users">
-    You're building an app on top of Tex. Most cases. Cleanest ops.
+    An app on top of Tex. Most cases. One key, per-user clients.
   </Card>
   <Card title="Pattern B" icon="building">
-    You're reselling Tex as part of your platform. Customers want their own bill.
+    A platform where each customer needs its own org, keys, and quota.
   </Card>
 </CardGroup>
 
 ## Quota strategy under Pattern A
 
-Daily quotas are per-org. Under Pattern A, all end-users share your one quota — so a runaway end-user can starve everyone else.
+Daily quotas are per org: 1,000,000 `tokens_in` and 5,000,000 `tokens_out` per UTC day, with `429` when exceeded. Under Pattern A, all end users share one quota, so one runaway user can starve the rest.
 
 Mitigations:
-- Track per-user token usage yourself (the `usage` field on every response makes this free).
-- Soft-cap each user at, say, 10% of your daily limit; switch them to no-memory generation when they exceed it.
-- Use [`tex.usage.today()`](/sdk/usage) to gate non-essential paths when total usage > 90%.
+- Track per-user token usage yourself. The `usage` field on every `remember` and `recall` response makes this cheap.
+- Soft-cap each user at, say, 10% of the daily limit, then switch them to no-memory generation.
+- Use [`tex.usage.today()`](/sdk/usage) to gate non-essential paths when total usage passes 90%.

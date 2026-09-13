@@ -3,7 +3,7 @@ title: "RAG with Azure GPT-4o"
 description: "Tex memory + GPT-4o on Azure for production RAG."
 ---
 
-The canonical "memory + LLM" loop with Azure OpenAI. Same shape works for OpenAI direct, Anthropic, or any chat-completion API — swap the SDK.
+The standard "memory + LLM" loop with Azure OpenAI. The same shape works for OpenAI direct, Anthropic, or any chat-completion API. Only the LLM SDK changes.
 
 ## Install
 
@@ -17,6 +17,7 @@ pip install tex-sdk openai
 # .env
 TEX_API_KEY=tex_live_...
 TEX_BASE_URL=https://api.getmetacognition.com
+TEX_ORG_ID=org_...
 
 AZURE_OPENAI_ENDPOINT=https://<your-resource>.openai.azure.com
 AZURE_OPENAI_API_KEY=...
@@ -29,57 +30,76 @@ AZURE_OPENAI_API_VERSION=2025-04-01-preview
 ```python rag.py
 import os
 from datetime import datetime, timezone
-from openai import AzureOpenAI
-from tex import Tex, RateLimitError, APITimeoutError
 
-tex = Tex(api_key=os.environ["TEX_API_KEY"], base_url=os.environ["TEX_BASE_URL"], timeout=10)
+from openai import AzureOpenAI
+from tex import APITimeoutError, RateLimitError, Tex
+
 gpt = AzureOpenAI(
     api_key=os.environ["AZURE_OPENAI_API_KEY"],
     api_version=os.environ["AZURE_OPENAI_API_VERSION"],
     azure_endpoint=os.environ["AZURE_OPENAI_ENDPOINT"],
 )
 
+
+def tex_for(user_id: str) -> Tex:
+    # One client per end user; cache and reuse it in a real app.
+    return Tex(
+        api_key=os.environ["TEX_API_KEY"],
+        base_url=os.environ["TEX_BASE_URL"],
+        org_id=os.environ["TEX_ORG_ID"],   # required on SDK 1.2.0–1.2.1; recommended on 1.2.2+
+        user_id=user_id,
+        timeout=10,
+    )
+
+
 def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
-def answer(query: str, sid: str) -> dict:
+
+def answer(tex: Tex, query: str, sid: str) -> dict:
     # 1. Recall — soft-fail
     memory: list[str] = []
     confidence = 0.0
     try:
-        hits = tex.recall(q=query, session_id=sid, top_k=5)
-        memory = [h.text for h in hits.hits.turns]
+        hits = tex.recall(query, session_id=sid, top_k=5)
+        if not hits.hits.turns:
+            # Closed conversations live in long-term memory
+            hits = tex.recall(query, session_id=sid, top_k=5, mode="deep")
+        memory = [h.text for h in hits.hits.turns + hits.hits.observations]
         confidence = hits.confidence
     except (RateLimitError, APITimeoutError):
         pass
 
     # 2. Generate
-    sys_msg = (
-        "You are a helpful assistant. "
-        + (f"Relevant memory:\n{chr(10).join('- ' + m for m in memory)}"
-           if memory else "")
-    )
+    sys_msg = "You are a helpful assistant."
+    if memory:
+        sys_msg += "\nRelevant memory:\n" + "\n".join("- " + m for m in memory)
     chat = gpt.chat.completions.create(
         model=os.environ["AZURE_OPENAI_DEPLOYMENT"],
         messages=[
             {"role": "system", "content": sys_msg},
-            {"role": "user",   "content": query},
+            {"role": "user", "content": query},
         ],
         temperature=0.4,
     )
     reply = chat.choices[0].message.content
 
     # 3. Remember
-    tex.conversations.remember(session_id=sid, turns=[
-        {"role":"user","text": query,  "timestamp": now_iso()},
-        {"role":"assistant","text": reply, "timestamp": now_iso()},
-    ])
+    tex.conversations.remember(
+        [
+            {"role": "user", "text": query, "timestamp": now_iso()},
+            {"role": "assistant", "text": reply, "timestamp": now_iso()},
+        ],
+        session_id=sid,
+    )
 
     return {"answer": reply, "confidence": confidence, "memory_used": len(memory)}
 
+
 if __name__ == "__main__":
     import json
-    print(json.dumps(answer("any food restrictions?", "demo"), indent=2))
+
+    print(json.dumps(answer(tex_for("demo-user"), "any food restrictions?", "demo"), indent=2))
 ```
 
 ## Run
@@ -90,6 +110,7 @@ python rag.py
 
 ## Notes
 
-- **Cite sources.** Pass each hit's `id` to GPT-4o and instruct it to cite `[mem:abc]` — you can later resolve those IDs back to the turn for click-through.
-- **Confidence-gated retry.** If `confidence < 0.4`, retry with `mode="deep"`. Costs +1–4s, rescues most weak-recall cases.
-- **Streaming.** `stream=True` works as expected. Push `remember` to a background task so it doesn't delay the stream.
+- **Cite sources.** Pass each hit's `id` to GPT-4o and ask it to cite `[mem:<id>]`. You can map those ids back to hits for click-through.
+- **Confidence is relative.** `confidence` is derived from the top rerank score and is not a calibrated probability. Tune any threshold against your own traffic before gating on it.
+- **Deep mode.** `mode="deep"` adds a long-term memory search and a second retrieval pass. It is slower than `active`, so use it as a fallback or for closed conversations.
+- **Streaming.** `stream=True` works as usual. Run `remember` in a background task so it doesn't delay the stream.

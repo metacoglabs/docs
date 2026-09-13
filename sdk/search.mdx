@@ -1,0 +1,78 @@
+---
+title: "Search"
+description: "Supermemory-compatible document and memory search, and profiles."
+---
+
+`tex.search` is a resource, not a callable. Use `tex.search.documents(...)`, `tex.search.memories(...)`, or the alias `tex.search.execute(...)`.
+
+For conversation memory, prefer [`recall`](/sdk/recall).
+
+## `search.documents`
+
+```python
+tex.search.documents(
+    q: str,
+    *,
+    container_tags: list[str] | None = None,
+    limit: int | None = None,
+    chunk_threshold: float | None = None,
+    include_full_docs: bool | None = None,
+    include_summary: bool | None = None,
+    rerank: bool | None = None,
+    rewrite_query: bool | None = None,
+    filters: dict | None = None,
+    doc_id: str | None = None,
+    only_matching_chunks: bool | None = None,
+) -> SearchDocumentsResponse    # results, timing, total, raw
+```
+
+Calls `POST /v3/search` — a vector search over the long-term store, limited to the caller's visible scopes. `limit` defaults to 10 (max 100). The first entry of `container_tags` selects the end user on key-only clients.
+
+```python
+resp = tex.search.documents("travel budget assumptions", limit=5)
+for r in resp.results:
+    print(r.score, r.document_id, r.chunks[0].content[:80])
+```
+
+`include_full_docs=True` fills `content`; `include_summary=True` fills `summary` when available.
+
+## `search.memories`
+
+```python
+tex.search.memories(
+    q: str,
+    *,
+    container_tag: str | None = None,
+    limit: int | None = None,
+    threshold: float | None = None,
+    rerank: bool | None = None,
+    rewrite_query: bool | None = None,
+    filters: dict | None = None,
+    search_mode: str | None = None,
+) -> SearchMemoriesResponse     # results, timing, total, raw
+```
+
+Calls `POST /v4/search`. Searches the active tier and the long-term store in parallel and fuses the rankings. Each result has `id`, `similarity` (normalised to [0, 1]), `memory`, `updated_at`, `metadata`, `version`.
+
+<Note>
+  When you omit `threshold`, the server applies **0.6** to raw scores before fusion. Lower it if you get too few results.
+</Note>
+
+```python
+resp = tex.search.memories("who owns EMEA travel?", limit=5, threshold=0.3)
+for m in resp.results:
+    print(f"{m.similarity:.2f} {m.memory}")
+```
+
+## `profile`
+
+```python
+tex.profile(container_tag: str, *, q: str | None = None,
+            filters: dict | None = None, threshold: float | None = None) -> ProfileResponse
+```
+
+Calls `POST /v4/profile`. `profile.static` is built from stored preferences, `profile.dynamic` from recent episode summaries. When `q` is given, `search_results` holds a long-term memory search for it. On a per-user client, pass the user's own id as `container_tag`.
+
+<Card title="Next: Track usage" icon="receipt" href="/sdk/usage" horizontal>
+  Read your token totals.
+</Card>

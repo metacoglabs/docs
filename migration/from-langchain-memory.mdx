@@ -11,10 +11,14 @@ The migration moves you from "give the LLM the whole sliding window" to "give th
 
 | LangChain | Tex equivalent |
 | --- | --- |
-| `ConversationBufferMemory` | `recall(q=user_msg, session_id=sid, top_k=20)` — surfaces the relevant 20 turns instead of the last N. |
-| `ConversationBufferWindowMemory(k=10)` | `recall(q=user_msg, session_id=sid, top_k=10)` — same `k`, but ranked by relevance. |
-| `ConversationSummaryMemory` | Tex stores extracted observations automatically. Surface them via `recall`'s `hits.observations`. |
-| `ConversationKGMemory` | Tex builds an entity graph in the background. Query via `hits.entities` (linked across observations). |
+| `ConversationBufferMemory` | `recall(q, session_id=sid, top_k=20)` — returns the 20 most relevant turns instead of the last N. |
+| `ConversationBufferWindowMemory(k=10)` | `recall(q, session_id=sid, top_k=10)` — same `k`, ranked by relevance. |
+| `ConversationSummaryMemory` | Idle conversations are consolidated into long-term memory (a summary plus the turns) after their inactivity window (30 minutes by default). Reach them with `recall(..., mode="deep")`. You can also attach your own facts as `observations` on a turn. They come back in `hits.observations`. |
+| `ConversationKGMemory` | No direct equivalent in `recall` yet. `hits.entities` is currently always empty. |
+
+<Note>
+  Memory is isolated by **Tex identity**, not by `session_id`. `recall` searches all of the caller's conversations. Build one client per end user with `user_id=`. See [Per-user clients](/sdk/per-user-clients).
+</Note>
 
 ## Migration
 
@@ -36,28 +40,43 @@ The migration moves you from "give the LLM the whole sliding window" to "give th
   </Tab>
   <Tab title="Tex retrieval — after">
     ```python
-    from langchain.prompts import ChatPromptTemplate
+    import os
+    from datetime import datetime, timezone
+
+    from langchain_core.prompts import ChatPromptTemplate
     from langchain_openai import ChatOpenAI
     from tex import Tex
 
-    tex = Tex(api_key=..., base_url=...)
+    tex = Tex(
+        api_key=os.environ["TEX_API_KEY"],
+        base_url=os.environ["TEX_BASE_URL"],
+        org_id=os.environ["TEX_ORG_ID"],   # required on SDK 1.2.0–1.2.1; recommended on 1.2.2+
+        user_id=current_user_id,           # one client per end user
+    )
+    prompt = ChatPromptTemplate.from_messages([
+        ("system", "Relevant memory:\n{memory}"),
+        ("user", "{input}"),
+    ])
+    llm_chain = prompt | ChatOpenAI(model="gpt-4o")
+
+
+    def now_iso() -> str:
+        return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
 
     def chat(user_msg: str, sid: str) -> str:
-        hits = tex.recall(q=user_msg, session_id=sid, top_k=10)
+        hits = tex.recall(user_msg, session_id=sid, top_k=10)
         memory = "\n".join(f"- {h.text}" for h in hits.hits.turns)
 
-        prompt = ChatPromptTemplate.from_messages([
-            ("system", "Relevant memory:\n{memory}"),
-            ("user", "{input}"),
-        ])
-        chain = prompt | ChatOpenAI(model="gpt-4o")
+        answer = llm_chain.invoke({"memory": memory, "input": user_msg}).content
 
-        answer = chain.invoke({"memory": memory, "input": user_msg}).content
-
-        tex.conversations.remember(session_id=sid, turns=[
-            {"role":"user","text": user_msg, "timestamp": now_iso()},
-            {"role":"assistant","text": answer, "timestamp": now_iso()},
-        ])
+        tex.conversations.remember(
+            [
+                {"role": "user", "text": user_msg, "timestamp": now_iso()},
+                {"role": "assistant", "text": answer, "timestamp": now_iso()},
+            ],
+            session_id=sid,
+        )
         return answer
     ```
   </Tab>
@@ -65,37 +84,41 @@ The migration moves you from "give the LLM the whole sliding window" to "give th
 
 ## What you give up
 
-LangChain's memory classes are simple in-process objects with no network call. Tex adds:
+LangChain's memory classes are in-process objects with no network call. With Tex you add:
 
-- Network round-trip (~150ms `remember`, ~1.7s `recall`) — your request gets slower.
-- A dependency on our service availability.
+- A network round-trip on every `remember` and `recall`, so each request gets slower. `mode="deep"` is slower than the default `active`.
+- A dependency on the Tex service being available.
 
 What you gain:
 
-- Memory survives restarts, deploys, and shard moves.
-- Bounded prompt size — never hit the context limit.
-- Cross-session continuity — same user across days/weeks/months.
-- Confidence scoring — gate fallback paths.
-- Observation extraction — structured "facts" without writing prompts.
+- Memory survives restarts and deploys.
+- Bounded prompt size, set by `top_k`.
+- Continuity across conversations for the same user, over days and weeks. Use `mode="deep"` for conversations idle longer than their inactivity window (30 minutes by default).
+- Sharing between users through [scopes](/sdk/scopes) (`team:`, `project:`, `org:`).
+- A relevance `confidence` score to gate fallback paths. It is relative, not a calibrated probability.
 
-For a hobby project, LangChain's buffer is fine. For anything user-facing in production, Tex's tradeoff is right.
+For a hobby project, LangChain's buffer is fine. For user-facing production apps, Tex's retrieval is usually the better tradeoff.
 
 ## Drop-in adapter (optional)
 
-If your codebase has dozens of LangChain chains and you'd rather not rewrite them all, wrap Tex in a `BaseChatMemory` subclass:
+If you have many LangChain chains and don't want to rewrite them, wrap Tex in a `BaseChatMemory` subclass:
 
 ```python tex_chat_memory.py
+from datetime import datetime, timezone
 from typing import Any
+
 from langchain.memory.chat_memory import BaseChatMemory
-from langchain.schema import BaseMessage, HumanMessage, AIMessage
 from tex import Tex
 
+
+def now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
 class TexChatMemory(BaseChatMemory):
-    def __init__(self, tex: Tex, session_id: str, top_k: int = 10, **kw):
-        super().__init__(**kw)
-        self._tex = tex
-        self._session_id = session_id
-        self._top_k = top_k
+    tex: Any              # a per-user tex.Tex client
+    session_id: str
+    top_k: int = 10
 
     @property
     def memory_variables(self) -> list[str]:
@@ -103,17 +126,19 @@ class TexChatMemory(BaseChatMemory):
 
     def load_memory_variables(self, inputs: dict[str, Any]) -> dict[str, Any]:
         q = inputs.get("input", "")
-        hits = self._tex.recall(q=q, session_id=self._session_id, top_k=self._top_k)
+        if not q:
+            return {"history": ""}
+        hits = self.tex.recall(q, session_id=self.session_id, top_k=self.top_k)
         history = "\n".join(f"- {h.text}" for h in hits.hits.turns)
         return {"history": history}
 
-    def save_context(self, inputs: dict[str, Any], outputs: dict[str, Any]) -> None:
-        self._tex.conversations.remember(
-            session_id=self._session_id,
-            turns=[
-                {"role":"user","text": inputs["input"], "timestamp": now_iso()},
-                {"role":"assistant","text": outputs["response"], "timestamp": now_iso()},
+    def save_context(self, inputs: dict[str, Any], outputs: dict[str, str]) -> None:
+        self.tex.conversations.remember(
+            [
+                {"role": "user", "text": inputs["input"], "timestamp": now_iso()},
+                {"role": "assistant", "text": outputs["response"], "timestamp": now_iso()},
             ],
+            session_id=self.session_id,
         )
 
     def clear(self) -> None:
@@ -121,7 +146,7 @@ class TexChatMemory(BaseChatMemory):
         pass
 ```
 
-Use it like any other LangChain memory:
+`BaseChatMemory` is a Pydantic model, so declare fields instead of overriding `__init__`. Use it like any other LangChain memory:
 
 ```python
 chain = ConversationChain(

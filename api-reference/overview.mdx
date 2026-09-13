@@ -3,7 +3,7 @@ title: "Overview"
 description: "Use Tex directly over HTTPS — for languages and runtimes the SDK doesn't cover yet."
 ---
 
-The Tex API is a small REST surface. If you're writing Python, prefer the [SDK](/sdk/installation) — it handles auth, refresh, and serialization. Use the raw API when you're in a language we don't ship a client for, or when you're building a sidecar.
+The Tex API is a small REST surface. If you're writing Python, prefer the [SDK](/sdk/installation) — it handles auth, refresh, and serialization. Use the raw API from other languages, from on-device apps holding a broker-issued token, or from a sidecar.
 
 ## Base URL
 
@@ -11,19 +11,26 @@ The Tex API is a small REST surface. If you're writing Python, prefer the [SDK](
 https://api.getmetacognition.com
 ```
 
+HTTPS only.
+
 ## Auth
 
-Every Tex-unique endpoint expects:
+Tex-native endpoints (`/recall`, `/ingestion/*`, `/me/*`, `/usage/*`, `/admin/*`) expect a JWT access token:
 
 ```http
 Authorization: Bearer <access_token>
 ```
 
-Where `<access_token>` is a JWT obtained by exchanging your API key. See [`POST /auth/token-exchange`](/api-reference/auth/token-exchange).
+Get one from [`POST /auth/token-exchange`](/api-reference/auth/token-exchange) — for the key's own identity, or for a specific end user with `user_id`.
+
+The Supermemory-compatible endpoints (`/v3/*`, `/v4/*`) accept **either** a raw API key or an access token as the Bearer credential:
+
+| Credential | Identity | `containerTag` |
+| --- | --- | --- |
+| Raw API key | The key's identity; `containerTag` selects the end user | Any user in the org |
+| Per-user access token | The token's user | Omit, or the user's own id (else `403 container_tag_not_permitted`) |
 
 ## Content type
-
-Always:
 
 ```http
 Content-Type: application/json
@@ -31,70 +38,84 @@ Content-Type: application/json
 
 ## Correlation ID
 
-Every request gets an `X-Correlation-ID` (UUID) generated on the server if you don't supply one. The SDK generates one client-side. Pass it through your own logs to trace requests end-to-end:
+Send an `X-Correlation-ID` header, or the server generates one. It is returned on every response. Quote it in support tickets.
 
 ```http
 X-Correlation-ID: 4f1d8e3c-2a9b-4c0d-9e6f-1a2b3c4d5e6f
 ```
 
-Quote this header in support tickets.
-
-## Errors
-
-Standard HTTP status codes:
+## Status codes
 
 | Status | Meaning |
 | --- | --- |
 | `200` | OK |
-| `201` | Created (signup, key creation) |
-| `202` | Accepted (async ingestion) |
-| `204` | No content (key revoke) |
-| `400` | Bad payload |
-| `401` | Auth failure |
-| `403` | Forbidden |
-| `404` | Not found |
-| `422` | Validation error (FastAPI shape) |
-| `429` | Daily quota exceeded |
-| `5xx` | Our problem |
+| `201` | Created (signup, key creation, new membership) |
+| `202` | Accepted (`/ingestion/memory`) |
+| `204` | No content (key revoke, v3 document delete) |
+| `400` | Bad payload (`/v3`, `/v4` validation) |
+| `401` | Missing, invalid, or expired credential |
+| `403` | Forbidden — scope not visible, `containerTag` not permitted, missing role |
+| `404` | Not found (or not visible to you) |
+| `409` | Conflict — duplicate org id, pipeline document update/delete |
+| `422` | Validation error on Tex-native routes |
+| `429` | Daily token quota exceeded |
+| `5xx` | Server error |
 
-Error body shape:
+## Error bodies
+
+Tex-native routes:
 
 ```json
 {
-  "error": "HTTP 401",
-  "message": "Invalid token",
-  "details": null,
-  "timestamp": "2026-05-08T10:00:00Z",
-  "request_id": "..."
+  "error": "HTTP 403",
+  "message": "Write scope 'team:finance' is not in your visible scopes. …",
+  "details": {"error": "scope_not_visible", "scope": "team:finance", "message": "…", "visible_scopes": ["org:acme", "user:alice"]},
+  "timestamp": "2026-09-14T10:00:00Z",
+  "request_id": null
 }
 ```
 
-## Rate limits
+`details` is `null` for plain errors. Request validation errors (`422`) use FastAPI's shape instead:
 
-Daily quota is enforced per-org. Currently:
+```json
+{"detail": [{"type": "missing", "loc": ["body", "turns", 0, "timestamp"], "msg": "Field required", "input": {…}}]}
+```
 
-- `tokens_in`: 1,000,000 / day
-- `tokens_out`: 5,000,000 / day
+Supermemory-compatible routes:
 
-Reset 00:00 UTC. See [Usage and billing](/concepts/usage-billing).
+```json
+{"error": "NotFound", "details": "Document not found"}
+```
+
+## Limits
+
+- Daily quota per org: `tokens_in` 1,000,000 and `tokens_out` 5,000,000, reset 00:00 UTC. Only `/ingestion/memory` and `/recall` are metered. See [Usage and billing](/concepts/usage-billing).
+- Request body: 50 MB maximum.
+- No per-minute rate limit is enforced today.
 
 ## Retries
 
-Recommended client-side policy: 2 retries with exponential backoff on `408`, `500`, `502`, `503`, `504`, and network errors. Honor the `Retry-After` header.
+Retry `408`, `500`, `502`, `503`, `504`, and network errors with exponential backoff, honoring `Retry-After`. Don't retry `400`, `401`, `403`, `404`, `409`, `422`. A quota `429` won't clear until 00:00 UTC.
 
-Don't retry `400`, `401`, `403`, `404`, `422`, `429` — they're terminal.
+Retrying writes is not always free — see [retry safety](/sdk/errors#retry-safety).
 
 ## Endpoint index
 
 <CardGroup cols={2}>
-  <Card title="Auth" icon="key" href="/api-reference/auth/signup">
+  <Card title="Auth" icon="key" href="/api-reference/auth/token-exchange">
     /signup · /auth/token-exchange · /auth/refresh
   </Card>
   <Card title="Account" icon="user" href="/api-reference/account/me">
-    /me · /me/api-keys
+    /me · /me/api-keys · /me/settings
   </Card>
   <Card title="Memory" icon="brain" href="/api-reference/memory/ingest-memory">
     /ingestion/memory · /recall
+  </Card>
+  <Card title="Documents" icon="file-lines" href="/api-reference/documents/add-document">
+    `/v3/documents` · `/v3/documents/{id}`
+  </Card>
+  <Card title="Admin" icon="users-gear" href="/api-reference/admin/scope-memberships">
+    /admin/scope-memberships
   </Card>
   <Card title="Usage" icon="receipt" href="/api-reference/usage/today">
     /usage/today · /usage/summary

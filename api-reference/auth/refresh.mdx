@@ -1,10 +1,10 @@
 ---
 title: "Refresh token"
-description: "Mint a new access token using a refresh token."
+description: "Mint a new token pair using a refresh token."
 api: "POST https://api.getmetacognition.com/auth/refresh"
 ---
 
-Use this when an `access_token` has expired but the `refresh_token` is still valid. The SDK does this automatically on 401.
+Use this when an `access_token` has expired but the `refresh_token` is still valid. The SDK does this automatically on `401`.
 
 ## Body
 
@@ -15,17 +15,17 @@ Use this when an `access_token` has expired but the `refresh_token` is still val
 ```
 
 <ParamField body="refresh_token" type="string" required>
-  The refresh token returned by `/auth/token-exchange`.
+  A refresh token from `/auth/token-exchange` or a previous refresh.
 </ParamField>
 
 ## Response — `200`
 
 <ResponseField name="access_token" type="string">
-  Fresh 24h JWT.
+  New 24h access token for the same org and user.
 </ResponseField>
 
 <ResponseField name="refresh_token" type="string">
-  Possibly rotated; persist whichever the response returns.
+  New 7-day refresh token. Persist it and discard the old one.
 </ResponseField>
 
 <ResponseField name="token_type" type="string">
@@ -35,6 +35,21 @@ Use this when an `access_token` has expired but the `refresh_token` is still val
 <ResponseField name="expires_in" type="number">
   Lifetime of the new access token in seconds.
 </ResponseField>
+
+## What carries over
+
+| Claim | After refresh |
+| --- | --- |
+| `org_id`, `user_id` | Kept |
+| `act` (minted for a specific user) | Kept — the token stays locked to that user |
+| `roles` | **Not** carried over |
+| `session_id` | **Not** carried over |
+
+Memory routes (`/recall`, `/ingestion/memory`, `/v3`, `/v4`, `/usage`) don't need roles. Role-gated routes do — re-exchange the API key instead of refreshing for those.
+
+<Warning>
+  Refresh does not check whether the API key that issued the original token is still active. A refresh token can keep producing new tokens after the key is revoked. Don't hand refresh tokens to clients you don't fully trust — re-exchange on your server instead.
+</Warning>
 
 ## Example
 
@@ -51,6 +66,7 @@ import httpx
 resp = httpx.post(
     "https://api.getmetacognition.com/auth/refresh",
     json={"refresh_token": refresh_token},
+    timeout=10,
 )
 tokens = resp.json()
 ```
@@ -58,7 +74,7 @@ tokens = resp.json()
 
 ## When refresh fails
 
-If the refresh token is itself expired (>7d old) or revoked (the underlying API key was revoked), `/auth/refresh` returns `401`. Fall back to `/auth/token-exchange` with the original API key — or, if the API key is also gone, surface a re-login flow.
+An expired, malformed, or wrong-type token returns `401`. Fall back to `/auth/token-exchange` with the API key.
 
 ```mermaid
 flowchart TD
@@ -66,7 +82,7 @@ flowchart TD
     B -->|200| C[Retry original call]
     B -->|401| D[Try POST /auth/token-exchange]
     D -->|200| C
-    D -->|401| E[Surface AuthenticationError to user]
+    D -->|401| E[Surface AuthenticationError]
 ```
 
-The Python SDK runs this entire flow internally on a single 401 response — you only see `AuthenticationError` if the whole chain fails.
+The Python SDK runs this flow on a single `401` when it holds a refresh token or an API key. A client built with only `access_token` raises `AuthenticationError`.

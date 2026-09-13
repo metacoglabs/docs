@@ -1,0 +1,150 @@
+---
+title: "Scope memberships"
+description: "Grant, list, and revoke team, project, and org scope memberships."
+---
+
+Memberships decide which shared scopes a user can read and write. Every user implicitly sees `user:<user_id>` and `org:<org_id>`; memberships add `team:`, `project:`, and other scopes on top.
+
+<Warning>
+  These are **platform-admin** endpoints: the token must carry the `admin` role. Today they are operated by Tex for your org — there is no org-scoped admin variant yet. Contact Tex to have grants applied, and never give an `admin` key to an application.
+</Warning>
+
+## Propagation
+
+Changes take effect on the user's next token refresh. Allow **up to 1 hour** before relying on a grant or a revocation. Every response carries a `note` with this caveat.
+
+## `POST /admin/scope-memberships`
+
+Grant `scope_id` to `user_id` within `org_id`. Idempotent.
+
+```http
+POST /admin/scope-memberships
+Authorization: Bearer <admin_token>
+Content-Type: application/json
+```
+
+```json
+{
+  "org_id": "acme",
+  "user_id": "alice",
+  "scope_id": "team:fpa-pod",
+  "role": "member"
+}
+```
+
+<ParamField body="org_id" type="string" required>
+  Org id, 1–256 chars.
+</ParamField>
+
+<ParamField body="user_id" type="string" required>
+  Your application's user id (the `user_id` you use for per-user tokens), 1–256 chars.
+</ParamField>
+
+<ParamField body="scope_id" type="string" required>
+  `"<kind>:<value>"`, kind `user` / `team` / `org` / `project`, 1–256 chars. An `org:` scope must be this row's own `org_id`, and a `user:` scope this row's own `user_id` — anything else returns `422`.
+</ParamField>
+
+<ParamField body="role" type="string" default="member">
+  Role within the scope, 1–32 chars.
+</ParamField>
+
+### Response — `201 Created` (new) or `200 OK` (replay)
+
+```json
+{
+  "membership": {
+    "id": 42,
+    "org_id": "acme",
+    "user_id": "alice",
+    "scope_id": "team:fpa-pod",
+    "role": "member",
+    "created_at": "2026-09-14T10:00:00"
+  },
+  "created": true,
+  "note": "Membership changes take effect on the caller's next helix token refresh; already-issued tokens keep their old read-set for up to the 1h token TTL."
+}
+```
+
+Replaying an existing grant returns `200` with `"created": false`. Replaying with a different `role` updates the stored role.
+
+## `GET /admin/scope-memberships`
+
+```http
+GET /admin/scope-memberships?org_id=acme&user_id=alice
+Authorization: Bearer <admin_token>
+```
+
+<ParamField query="org_id" type="string">
+  Filter by org.
+</ParamField>
+
+<ParamField query="user_id" type="string">
+  Filter by user.
+</ParamField>
+
+```json
+{
+  "memberships": [
+    {"id": 42, "org_id": "acme", "user_id": "alice", "scope_id": "team:fpa-pod", "role": "member", "created_at": "2026-09-14T10:00:00"}
+  ],
+  "total": 1
+}
+```
+
+Implicit `user:` and `org:` scopes are not rows and don't appear here.
+
+## `DELETE /admin/scope-memberships`
+
+Revoke a grant. The key goes in the JSON body.
+
+```http
+DELETE /admin/scope-memberships
+Authorization: Bearer <admin_token>
+Content-Type: application/json
+```
+
+```json
+{"org_id": "acme", "user_id": "alice", "scope_id": "team:fpa-pod"}
+```
+
+```json Response — 200
+{
+  "removed": true,
+  "note": "Membership changes take effect on the caller's next helix token refresh; already-issued tokens keep their old read-set for up to the 1h token TTL."
+}
+```
+
+`404` if no such grant exists.
+
+After propagation, the user's writes and narrowed reads into that scope return `403 scope_not_visible`, and default reads stop including it. Memory already written into the scope stays there for the remaining members.
+
+## Errors
+
+| Status | When |
+| --- | --- |
+| `401` | Missing or invalid token |
+| `403` | Token doesn't carry the `admin` role |
+| `404` | `DELETE` of a grant that doesn't exist |
+| `422` | Malformed `scope_id`, `org:` / `user:` scope inconsistent with the row, field length |
+
+## Example
+
+```bash
+BASE=https://api.getmetacognition.com
+
+# Grant the FP&A pod and the budget-cycle project
+for s in team:fpa-pod project:budget-cycle-2027; do
+  curl -s -X POST $BASE/admin/scope-memberships \
+    -H "Authorization: Bearer $ADMIN_TOKEN" -H 'content-type: application/json' \
+    -d "{\"org_id\":\"acme\",\"user_id\":\"alice\",\"scope_id\":\"$s\"}"
+done
+
+# List alice's grants
+curl -s "$BASE/admin/scope-memberships?org_id=acme&user_id=alice" \
+  -H "Authorization: Bearer $ADMIN_TOKEN"
+
+# Revoke
+curl -s -X DELETE $BASE/admin/scope-memberships \
+  -H "Authorization: Bearer $ADMIN_TOKEN" -H 'content-type: application/json' \
+  -d '{"org_id":"acme","user_id":"alice","scope_id":"team:fpa-pod"}'
+```

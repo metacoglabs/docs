@@ -3,9 +3,11 @@ title: "Manage API keys"
 description: "List, mint, and revoke API keys."
 ---
 
+All three endpoints require a token exchanged **without** `user_id`. Per-user tokens are always refused (`403`).
+
 ## `GET /me/api-keys`
 
-Lists keys for the current **org** (sorted by `created_at` desc). Same shape as `GET /me`'s `api_keys` field.
+Lists the org's keys, newest first. **Org admin only** — the token's key must have `admin` or `*`.
 
 ```http
 GET /me/api-keys[?include_revoked=true]
@@ -18,7 +20,7 @@ Authorization: Bearer <access_token>
 
 ## `POST /me/api-keys`
 
-Mints a new key. Returns the plaintext value **once.**
+Mints a new key. Returns the plaintext value **once**. **Org admin only.**
 
 ```http
 POST /me/api-keys
@@ -30,17 +32,25 @@ Content-Type: application/json
 
 ```json
 {
-  "name":   "laptop-dev",
-  "scopes": ["*"]
+  "name": "token-broker",
+  "scopes": ["impersonate_user"]
 }
 ```
 
 <ParamField body="name" type="string">
-  Optional human-readable label, max 64 chars.
+  Optional label, ≤ 64 chars.
 </ParamField>
 
-<ParamField body="scopes" type="array[string]" default='["*"]'>
-  Permission scopes for the new key. Default `["*"]` means full access. Scoped keys (e.g. `["read"]`) are reserved for future use.
+<ParamField body="scopes" type="array[string]" default='["user"]'>
+  Scopes for the new key. Default `["user"]` (least privilege). Common values:
+
+  | Scope | Grants |
+  | --- | --- |
+  | `user` | Nothing extra — memory, usage, and search calls as the key's own identity |
+  | `impersonate_user` | Minting per-user tokens with `user_id` on token exchange |
+  | `*` | Owner key: impersonation and key management |
+
+  Memory routes don't require any scope. Per-user tokens inherit the key's scopes as roles — a token-broker key should have exactly `["impersonate_user"]`. Other role names are reserved for Tex operators; don't request them.
 </ParamField>
 
 ### Response — `201`
@@ -50,7 +60,7 @@ Content-Type: application/json
 </ResponseField>
 
 <ResponseField name="key" type="object">
-  Metadata (id, prefix, display_id, name, …).
+  Metadata (`id`, `prefix`, `display_id`, `name`, `scopes`, …).
 </ResponseField>
 
 ```json
@@ -60,10 +70,10 @@ Content-Type: application/json
     "id": "30a820b9-11b6-4a54-93fc-0a682c167476",
     "prefix": "tex_live_",
     "display_id": "eGpnAyAr",
-    "name": "laptop-dev",
-    "scopes": ["*"],
+    "name": "token-broker",
+    "scopes": ["impersonate_user"],
     "is_active": true,
-    "created_at": "2026-05-08T09:57:02.363742",
+    "created_at": "2026-09-14T09:57:02.363742",
     "last_used_at": null,
     "revoked_at": null
   }
@@ -72,7 +82,7 @@ Content-Type: application/json
 
 ## `DELETE /me/api-keys/{id}`
 
-Revokes a key. Returns `204 No Content`.
+Revokes a key. Returns `204 No Content`. Allowed for an org admin (any key in the org), or for a token exchanged from the key being revoked.
 
 ```http
 DELETE /me/api-keys/{id}
@@ -80,11 +90,13 @@ Authorization: Bearer <access_token>
 ```
 
 <ParamField path="id" type="string" required>
-  The key's UUID (the `id` field, not the prefix or display_id).
+  The key's UUID (the `id` field, not the prefix or display id).
 </ParamField>
 
+Revoking an already-revoked key also returns `204`. An unknown id returns `404` for org admins and `403` otherwise.
+
 <Warning>
-  Revocation is **irreversible.** Existing JWTs minted from a revoked key keep working until they expire (max 24h after revocation).
+  Revocation is **irreversible**, and it only blocks new token exchanges. Access tokens already minted from the key keep working until they expire (up to 24h), and refresh tokens can still be refreshed. See [token lifetimes](/authentication#token-lifetimes-refresh-and-revocation).
 </Warning>
 
 ## Examples
@@ -95,10 +107,10 @@ Authorization: Bearer <access_token>
 curl -H "Authorization: Bearer $JWT" \
   https://api.getmetacognition.com/me/api-keys
 
-# Mint a new one
+# Mint a token-broker key
 curl -X POST -H "Authorization: Bearer $JWT" \
   -H 'content-type: application/json' \
-  -d '{"name":"production"}' \
+  -d '{"name":"token-broker","scopes":["impersonate_user"]}' \
   https://api.getmetacognition.com/me/api-keys
 
 # Revoke
@@ -112,20 +124,18 @@ import httpx
 H = {"Authorization": f"Bearer {jwt}"}
 api = "https://api.getmetacognition.com"
 
-# List
 keys = httpx.get(f"{api}/me/api-keys", headers=H).json()
 
-# Mint
-new = httpx.post(f"{api}/me/api-keys", headers=H, json={"name": "production"}).json()
+new = httpx.post(f"{api}/me/api-keys", headers=H,
+                 json={"name": "token-broker", "scopes": ["impersonate_user"]}).json()
 plaintext = new["api_key"]   # save this
 
-# Revoke
 httpx.delete(f"{api}/me/api-keys/{key_id}", headers=H)
 ```
 </CodeGroup>
 
 ## Operational tips
 
-- One key per environment. Mint `production`, `staging`, `local-dev-sauhard` separately.
-- Set `last_used_at` thresholds in your monitoring — alert if a key hasn't been used in 30 days (probably abandoned).
-- Don't share keys across services — each service gets its own so revocation has surgical blast radius.
+- One key per environment and per service, so revocation has a small blast radius.
+- Alert on keys whose `last_used_at` hasn't moved in 30 days.
+- Keep impersonation-capable keys on servers only.

@@ -1,0 +1,96 @@
+---
+title: "Scopes"
+description: "Hierarchical write scopes, default_scope, and scoped recall."
+---
+
+A scope id is `"<kind>:<value>"` with kind `user`, `team`, `org`, or `project`. See [Users, teams, and scopes](/concepts/scopes) for the model.
+
+## Write scope
+
+Every write method accepts `scope`:
+
+| Method | `scope` |
+| --- | --- |
+| `conversations.remember(turns, *, session_id, metadata=None, scope=None)` | ✓ |
+| `documents.add(content, *, ..., scope=None)` / `tex.add(...)` | ✓ |
+| `documents.update(id, *, ..., scope=None)` | ✓ |
+| `documents.batch_add(documents, *, ..., scope=None)` | ✓ |
+| `memories.add(memories, *, container_tag=None, scope=None)` | ✓ |
+| `memories.update_memory(..., scope=None)` | ✓ |
+| `episodes.store(messages, *, ..., scope=None)` | ✓ |
+| `preferences.store(preferences, *, metadata=None, scope=None)` | ✓ |
+| `db.query(query, params=None, *, scope=None)` | ✓ |
+
+Resolution for each write:
+
+1. The call's `scope`, if given
+2. Otherwise the client's `default_scope`
+3. Otherwise nothing is sent and the server stamps your personal `user:<user_id>` scope
+
+```python
+from tex import Tex
+
+alice = Tex(api_key=KEY, base_url=BASE, org_id=ORG, user_id="alice",
+            default_scope="team:fpa-pod")
+
+alice.memories.add([{"content": "FY27 plan uses 4% merit increase"}])          # team:fpa-pod
+alice.documents.add("Q3 forecast memo …", scope="project:budget-cycle-2027")   # project
+alice.conversations.remember(turns, session_id="notes", scope="user:alice")    # personal
+```
+
+## Read scope
+
+`recall` reads every visible scope unless you narrow it:
+
+```python
+alice.recall("merit assumptions", session_id="s1")                               # all visible scopes
+alice.recall("merit assumptions", session_id="s1", scope="team:fpa-pod")         # only team:fpa-pod
+```
+
+`default_scope` never narrows reads.
+
+## Validation
+
+The SDK checks the **shape** of every scope before sending — at construction for `default_scope`, per call for `scope`:
+
+```python
+from tex import InvalidScopeError
+
+try:
+    alice.recall("x", session_id="s1", scope="finance")
+except InvalidScopeError as e:     # also a ValueError
+    print(e)  # invalid scope 'finance': expected '<kind>:<value>', e.g. 'team:eng'
+```
+
+**Membership** is checked by the server.
+
+## Handling `403 scope_not_visible`
+
+```python
+from tex import PermissionDeniedError
+
+try:
+    alice.conversations.remember(turns, session_id="s1", scope="team:finance")
+except PermissionDeniedError as e:
+    body = e.details.get("details", {}) if isinstance(e.details, dict) else {}
+    if body.get("error") == "scope_not_visible":
+        print("visible scopes:", body["visible_scopes"])
+```
+
+On a write, the server rejects the request before doing any work. On a narrowed `recall`, the same code is returned for a scope outside your read-set.
+
+## Memberships
+
+A user sees `user:<user_id>`, `org:<org_id>`, plus every scope granted by a membership. Grants are managed with the admin API:
+
+```bash
+curl -X POST https://api.getmetacognition.com/admin/scope-memberships \
+  -H "Authorization: Bearer $ADMIN_TOKEN" -H 'content-type: application/json' \
+  -d '{"org_id": "acme", "user_id": "alice", "scope_id": "team:fpa-pod", "role": "member"}'
+```
+
+Changes take effect on the user's next token refresh — allow up to 1 hour. See [Scope memberships](/api-reference/admin/scope-memberships).
+
+<Card title="Next: Documents" icon="file-lines" href="/sdk/documents" horizontal>
+  Add documents into a scope and track processing.
+</Card>

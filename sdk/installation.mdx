@@ -11,7 +11,7 @@ description: "Install tex-sdk and verify the install."
 ## Install
 
 ```bash
-pip install tex-sdk
+pip install tex-sdk==1.2.2
 ```
 
 Or `uv add tex-sdk` / `poetry add tex-sdk`.
@@ -28,35 +28,45 @@ Or `uv add tex-sdk` / `poetry add tex-sdk`.
 
 ```bash
 python -c "import tex; print(tex.__version__)"
-# 1.1.0
+# 1.2.2
 ```
 
 ## Pin a version
 
 ```text requirements.txt
-tex-sdk>=1.1.0,<2
+tex-sdk>=1.2.2,<2
 ```
 
-For PEP 621 `pyproject.toml`, add `"tex-sdk>=1.1.0,<2"` under `[project].dependencies`. For Poetry, `tex-sdk = "^1.1.0"` under `[tool.poetry.dependencies]`.
+For PEP 621 `pyproject.toml`, add `"tex-sdk>=1.2.2,<2"` under `[project].dependencies`. For Poetry, `tex-sdk = "^1.2.2"` under `[tool.poetry.dependencies]`.
+
+<Warning>
+  Use 1.2.0 or later against production — earlier versions sign per-user clients in through `/auth/login`, which production rejects with `403`. 1.2.1 adds the configurable [inactivity window](/concepts/memory-model#inactivity-window). 1.2.2 fixes the first-call `422` for clients built without `org_id`, `batch_add` results, and adds `RecallResponse.active_tier_error`.
+</Warning>
 
 ## Optional extras
 
-The SDK pulls in `httpx[http2]` automatically, which gives you HTTP/2 multiplexing. If your egress proxy strips HTTP/2, disable it:
+The only required dependency is `httpx`. HTTP/2 needs the `h2` package:
+
+```bash
+pip install "tex-sdk[http2]"
+```
+
+`http2=True` is the default. Without `h2` installed, the SDK falls back to HTTP/1.1 automatically. To force HTTP/1.1:
 
 ```python
-tex = Tex(api_key=..., http2=False)
+tex = Tex(api_key=..., base_url=..., http2=False)
 ```
 
 ## Type hints
 
-The SDK ships type stubs (`py.typed`). Mypy and Pyright pick them up automatically — no `types-` package needed.
+The SDK ships `py.typed`. Mypy and Pyright pick it up automatically — no `types-` package needed.
 
 ```python
 from tex import Tex, RecallResponse
 
 tex: Tex = Tex(...)
-hits: RecallResponse = tex.recall(q="...", session_id="...")
-reveal_type(hits.confidence)   # float
+resp: RecallResponse = tex.recall(q="...", session_id="...")
+reveal_type(resp.confidence)   # float
 ```
 
 <Card title="Next: configure the client" icon="gears" href="/sdk/client">

@@ -3,38 +3,77 @@ title: "From Supermemory"
 description: "Migrate from Supermemory's SDK to Tex with minimal code changes."
 ---
 
-The Tex Python SDK is **resource-shape compatible** with Supermemory for the verbs we both implement. If you're using `supermemory.add(...)`, `client.search(...)`, or `client.profile(...)`, the migration is mostly a pip install and a base-url swap.
+The Tex Python SDK mirrors Supermemory's **resource shapes** for the verbs both implement. Tex serves them on Supermemory-compatible `/v3/*` and `/v4/*` routes. Most migrations are a package install, a base-URL change, and a check of the calls listed below.
 
-## Drop-in compatibility
+## Compatible calls
 
-These calls work the same in Tex:
-
-| Supermemory | Tex |
+| Supermemory-style call | Tex |
 | --- | --- |
-| `client.add(content, container_tag=...)` | `tex.add(content, container_tag=...)` |
-| `client.search(q, ...)` | `tex.search.documents(q, ...)` (or `tex.search.memories(q, ...)`) |
-| `client.profile(container_tag, ...)` | `tex.profile(container_tag, ...)` |
-| `client.documents.list()` | `tex.documents.list()` |
+| `client.add(content, container_tag=...)` | `tex.add(content, container_tag=...)` (same as `tex.documents.add`) |
+| search documents | `tex.search.documents(q, container_tags=[...], limit=...)` (alias `tex.search.execute(q, ...)`) |
+| search memories | `tex.search.memories(q, container_tag=..., limit=..., threshold=...)` |
+| `client.profile(container_tag, ...)` | `tex.profile(container_tag, q=..., filters=..., threshold=...)` |
+| `client.memories.add([...])` | `tex.memories.add([{"content": ...}], container_tag=...)` |
+| `client.memories.forget(...)` | `tex.memories.forget(container_tag, id=...)` |
 | `client.documents.get(id)` | `tex.documents.get(id)` |
-| `client.documents.update(id, ...)` | `tex.documents.update(id, ...)` |
+| `client.documents.list()` | `tex.documents.list(container_tags=[...], limit=..., page=...)` |
+| `client.documents.update(id, ...)` | `tex.documents.update(id, content=..., metadata=...)` |
 | `client.documents.delete(id)` | `tex.documents.delete(id)` |
-| `client.documents.batch_add([...])` | `tex.documents.batch_add([...])` |
+| `client.documents.batch_add([...])` | `tex.documents.batch_add([...], container_tag=...)` |
+
+Method names may differ between Supermemory SDK versions. Check each call site against the Tex signatures in [Documents](/sdk/documents), [Memories](/sdk/memories) and [Search](/sdk/search).
 
 <Note>
-  Tex's `search` is a **resource**, not a callable — `tex.search(q)` will raise `TypeError`. Use `tex.search.documents(q)` or `tex.search.memories(q)`. There's also a generic `tex.search.execute(q)` alias for `tex.search.documents(q)` if you want a single entry point.
+  In Tex, `search` is a **resource**, not a callable. `tex.search(q)` raises `TypeError`. Use `tex.search.documents(q)`, `tex.search.memories(q)`, or the alias `tex.search.execute(q)`.
 </Note>
 
-Tex's `/v3/*` and `/v4/*` paths accept the **raw API key** as Bearer (no JWT exchange) for full Supermemory compatibility — the SDK routes them automatically.
+## Differences that affect migrated code
 
-## Exclusive Tex features
+- **`documents.add` is asynchronous.** It returns an id like `doc-…` with status `queued`. Poll `tex.documents.get(id).status` until it reaches `done` or `failed`. In-flight states are `queued`, `extracting`, `chunking` and `indexing`.
+- **Pipeline documents can't be updated or deleted by id.** `documents.update` and `documents.delete` on a `doc-…` id raise `ConflictError` (409). Add a new document instead, or update or delete the individual memories.
+- **`documents.list` lists memory-graph items**, not pipeline documents added with `documents.add`. Track `doc-…` ids yourself.
+- **`documents.batch_add` response.** `resp.results` holds the per-document `{id, status}` list (SDK 1.2.2+). On 1.2.0–1.2.1 the fields came back empty; read `resp.raw["data"]` there.
+- **Metadata must be flat.** Nested objects and arrays inside `metadata` are dropped.
+- **`container_tag` format.** It must match `^[a-zA-Z0-9_-]+$` and be at most 100 characters, or the request is rejected with 400.
+- **Memory search threshold.** `search.memories` defaults to `threshold=0.6` server-side. Lower it if you get too few results.
 
-These are Tex-only verbs you can adopt incrementally:
+## Auth: two ways to call the compat routes
+
+<Tabs>
+  <Tab title="Key-only client (Supermemory-style)">
+    ```python
+    tex = Tex(api_key=os.environ["TEX_API_KEY"], base_url="https://api.getmetacognition.com")
+    tex.add("Alice prefers aisle seats", container_tag="alice")
+    ```
+
+    The SDK sends the raw API key as Bearer on `/v3` and `/v4`. `container_tag` selects the end user. Anyone who holds the key can act for any user in the org, so keep the key on your server.
+  </Tab>
+  <Tab title="Per-user client (recommended)">
+    ```python
+    alice = Tex(
+        api_key=os.environ["TEX_API_KEY"],
+        base_url="https://api.getmetacognition.com",
+        org_id=os.environ["TEX_ORG_ID"],
+        user_id="alice",
+    )
+    alice.add("Alice prefers aisle seats")             # no container_tag needed
+    alice.add("Q3 plan", scope="team:travel-desk")     # share with a team
+    ```
+
+    The SDK exchanges the key for a token bound to `alice` and sends it on every call, including `/v3` and `/v4`. `container_tag` must be omitted or equal `"alice"`. Naming another user raises `PermissionDeniedError` (`403 container_tag_not_permitted`). The key needs an impersonation scope such as `impersonate_user`. See [Per-user clients](/sdk/per-user-clients) and [Scopes](/sdk/scopes).
+  </Tab>
+</Tabs>
+
+## Tex-only features
+
+You can adopt these one at a time:
 
 | Verb | What it adds |
 | --- | --- |
-| `tex.conversations.remember(...)` | Native conversation-turn ingestion with role/timestamp/observations. |
-| `tex.recall(...)` | Confidence-scored retrieval with active/deep modes. |
-| `tex.usage.today()` | Read your token totals without leaving Python. |
+| `tex.conversations.remember(turns, session_id=...)` | Conversation-turn ingestion with role, timestamp and optional observations. |
+| `tex.recall(q, session_id=..., mode="deep")` | Ranked retrieval over recent (active) and long-term (deep) memory, with a relevance score. |
+| `scope=` / `default_scope=` | Hierarchical sharing across `user:`, `team:`, `project:` and `org:` scopes. |
+| `tex.usage.today()` | Read your org's token totals and daily quota. |
 
 ## Migration steps
 
@@ -42,7 +81,7 @@ These are Tex-only verbs you can adopt incrementally:
   <Step title="Install Tex">
     ```bash
     pip uninstall supermemory
-    pip install tex-sdk
+    pip install "tex-sdk>=1.2.2"
     ```
   </Step>
   <Step title="Swap the import">
@@ -52,23 +91,27 @@ These are Tex-only verbs you can adopt incrementally:
     client = Supermemory(api_key=...)
 
     # after
+    import os
     from tex import Tex
-    client = Tex(api_key=..., base_url="https://api.getmetacognition.com")
+    client = Tex(
+        api_key=os.environ["TEX_API_KEY"],
+        base_url="https://api.getmetacognition.com",   # required
+        org_id=os.environ["TEX_ORG_ID"],
+    )
     ```
   </Step>
-  <Step title="Run">
-    Existing `add` / `search` / `profile` calls keep working unchanged.
+  <Step title="Check the differences above">
+    Pay particular attention to asynchronous `documents.add`, 409 on pipeline-document update and delete, and flat metadata.
   </Step>
   <Step title="Adopt Tex-native verbs (optional)">
-    Replace your conversation-history pattern with `tex.conversations.remember` + `tex.recall` for stronger temporal awareness and confidence scoring. See [memory model](/concepts/memory-model).
+    Replace your conversation-history pattern with `tex.conversations.remember` + `tex.recall`. See [memory model](/concepts/memory-model).
   </Step>
 </Steps>
 
 ## Behavioral differences
 
-- **Auth.** Supermemory uses the API key as Bearer. Tex does the same on `/v3/*` and `/v4/*` (compat paths) but exchanges to JWT for Tex-native paths. The SDK handles both transparently.
-- **Retention.** Persistent on both. No "free tier expires" wipe on Tex — your memory stays until you delete it.
-- **Pricing.** Tex bills on `tokens_in` / `tokens_out`, not document count. Chatty workloads are usually cheaper; document-heavy ones — measure with `tex.usage.summary()` after a representative day.
-- **Profiles.** Tex's `profile` aggregates over `container_tag` like Supermemory's. Backfill works without changes.
+- **Auth.** Compat routes (`/v3/*`, `/v4/*`) accept the raw API key *or* a per-user token. Tex-native routes (`/ingestion/memory`, `/recall`, `/usage/*`) always use a token from `/auth/token-exchange`. The SDK handles both.
+- **Billing.** Tex meters `tokens_in` and `tokens_out` per org, with daily caps of 1,000,000 in and 5,000,000 out per UTC day (`429` when exceeded). Measure your workload with `tex.usage.summary()` after a representative day.
+- **Profiles.** `tex.profile(container_tag)` aggregates over one user's memories. With a per-user client, pass that user's own id.
 
-If you hit a Supermemory verb that doesn't behave identically, file an issue.
+If a verb doesn't behave the way your Supermemory code expects, file an issue.

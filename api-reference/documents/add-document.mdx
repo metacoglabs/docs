@@ -1,0 +1,82 @@
+---
+title: "Add document"
+description: "Queue a document for ingestion into long-term memory."
+api: "POST https://api.getmetacognition.com/v3/documents"
+---
+
+Supermemory-compatible. The REST equivalent of `tex.documents.add(...)`. The document is processed asynchronously — poll [`GET /v3/documents/{id}`](/api-reference/documents/get-document) for status.
+
+## Headers
+
+```http
+Authorization: Bearer <access_token or API key>
+Content-Type: application/json
+```
+
+With a per-user access token, the document is written as that user. With a raw API key, `containerTag` selects the end user.
+
+## Body
+
+```json
+{
+  "content": "FY27 budget memo: headcount flat, merit 4%, travel -10% …",
+  "scope": "project:budget-cycle-2027",
+  "customId": "memo-2026-09-14",
+  "metadata": {"source": "sharepoint", "author": "alice"}
+}
+```
+
+<ParamField body="content" type="string" required>
+  Document text, non-empty.
+</ParamField>
+
+<ParamField body="scope" type="string">
+  Write scope `"<kind>:<value>"`. Defaults to the user's personal scope. `403 scope_not_visible` if not visible.
+</ParamField>
+
+<ParamField body="containerTag" type="string">
+  End user (raw API key), or omit / own user id (per-user token — otherwise `403 container_tag_not_permitted`). `^[a-zA-Z0-9_-]+$`, ≤ 100 chars.
+</ParamField>
+
+<ParamField body="customId" type="string">
+  Stored in metadata. Not used for deduplication.
+</ParamField>
+
+<ParamField body="metadata" type="object">
+  Flat key/value pairs. Nested objects and arrays are dropped.
+</ParamField>
+
+<ParamField body="entityContext" type="string">
+  Optional context hint stored in metadata.
+</ParamField>
+
+## Response — `200`
+
+```json
+{"id": "doc-3b1f0c9e…", "status": "queued"}
+```
+
+Every call creates a new document — this endpoint is not idempotent.
+
+## Errors
+
+| Status | When |
+| --- | --- |
+| `400` | Validation (`{"error": "BadRequest", "details": …}`), e.g. empty `content`, bad `containerTag` or scope |
+| `401` | Missing or invalid credential |
+| `403` | `scope_not_visible` or `container_tag_not_permitted` |
+
+## Example
+
+<CodeGroup>
+```bash cURL
+curl -X POST https://api.getmetacognition.com/v3/documents \
+  -H "Authorization: Bearer $JWT" -H 'content-type: application/json' \
+  -d '{"content":"FY27 budget memo …","scope":"project:budget-cycle-2027"}'
+```
+
+```python Python (SDK)
+resp = tex.documents.add("FY27 budget memo …", scope="project:budget-cycle-2027")
+print(resp.id, resp.status)
+```
+</CodeGroup>

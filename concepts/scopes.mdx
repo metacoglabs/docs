@@ -1,56 +1,81 @@
 ---
-title: "Multi-user memory"
-description: "Org / user / session — how Tex partitions memory."
+title: "Users, teams, and scopes"
+description: "Personal, team, project, and org memory — how Tex decides who can read and write what."
 ---
 
-Every turn and every recall is keyed by `(org_id, user_id, session_id)`.
+Every memory belongs to a **scope**. A scope id is `"<kind>:<value>"`:
 
-| Field | Set by | Required |
+| Kind | Example | Who can see it |
 | --- | --- | --- |
-| `org_id` | The JWT (your API key) — server-injected | ✓ |
-| `user_id` | The JWT, or override per-call for sub-user scoping | ✓ |
-| `session_id` | **You, per call.** | ✓ |
+| `user` | `user:alice` | Only that user. Every user implicitly has their own. |
+| `team` | `team:fpa-pod` | Users granted a membership |
+| `project` | `project:budget-cycle-2027` | Users granted a membership |
+| `org` | `org:acme` | **Every user in the org** (implicit; the value is your Tex org id) |
 
-`org_id` is locked to your API key. You almost never set it manually. `session_id` is where you do the work.
+## Identity comes first
+
+Scopes are resolved for the **user in the token**. A client built with only an API key acts as the key's own identity, so every caller shares one memory. For multi-user apps, give each end user their own identity:
+
+```python
+alice = Tex(api_key=KEY, base_url=BASE, org_id=ORG, user_id="alice")
+```
+
+See [Per-user clients](/sdk/per-user-clients).
+
+<Warning>
+  `session_id` is not an isolation boundary. It groups turns into an episode (one conversation), but recall reads across every episode and scope the caller can see. Encoding end users into `session_id` on a shared client does **not** separate their memory.
+</Warning>
+
+## Visible scopes
+
+A user's **visible scopes** are:
+
+1. `user:<user_id>` — implicit
+2. `org:<org_id>` — implicit
+3. Every scope granted to them by a membership
+
+Memberships are managed with [`/admin/scope-memberships`](/api-reference/admin/scope-memberships). Changes take effect on the user's next token refresh — allow up to 1 hour.
+
+## Writes
+
+- **Default:** writes land in the caller's personal `user:<user_id>` scope.
+- **Per call:** pass `scope="team:fpa-pod"` to `remember`, `documents.add`, `memories.add`, and the other write methods.
+- **Per client:** set `default_scope="team:fpa-pod"` on `Tex(...)`. A per-call `scope` wins.
+- Writing into a scope you can't see returns `403` with `scope_not_visible` and your `visible_scopes`.
+
+```python
+pod = Tex(api_key=KEY, base_url=BASE, org_id=ORG, user_id="alice",
+          default_scope="team:fpa-pod")
+pod.conversations.remember(turns, session_id="variance-review")          # team:fpa-pod
+pod.conversations.remember(turns, session_id="notes", scope="user:alice") # personal
+```
+
+## Reads
+
+- **Default:** `recall` and search read every visible scope.
+- **Narrow:** `tex.recall(q, session_id=..., scope="project:budget-cycle-2027")` reads only that scope. `403 scope_not_visible` if you are not a member.
 
 ## Picking a `session_id`
 
-Free-form string. Reuse, don't enumerate.
+Free-form string. One per conversation, work session, or task. Reuse it while the conversation continues.
 
 <CardGroup cols={2}>
   <Card title="One conversation" icon="message">
     `chat-{conversation_uuid}`
   </Card>
-  <Card title="Slack channel" icon="hashtag">
-    `slack-{channel_id}`
-  </Card>
   <Card title="Per-task agent" icon="robot">
     `agent-{task_id}`
   </Card>
-  <Card title="Lifetime memory" icon="infinity">
-    `bio-{user_id}`
+  <Card title="Work session on a document" icon="file">
+    `doc-{document_id}-{date}`
+  </Card>
+  <Card title="Support ticket" icon="ticket">
+    `ticket-{ticket_id}`
   </Card>
 </CardGroup>
 
-## Multi-user SaaS
+Short ids made of letters, digits, `.`, `_`, and `-` are used as-is; other ids work too (they are hashed internally).
 
-Each end-user gets their own memory. **Encode the end-user into the `session_id`** with one shared client:
-
-```python
-tex = Tex(api_key=os.environ["TEX_API_KEY"], base_url=BASE_URL)
-
-def chat(user_msg: str, x_user_id: str, conv_id: str):
-    sid = f"u_{x_user_id}-{conv_id}"
-    hits = tex.recall(q=user_msg, session_id=sid)
-    ...
-```
-
-One API key, one bill, one client, full isolation between end-users.
-
-<Note>
-  Per-call `user_id` scoping is on the SDK roadmap (1.2). Until then, encoding into `session_id` is the cleanest pattern. See the [multi-tenant SaaS recipe](/recipes/multi-tenant-saas).
-</Note>
-
-<Card title="Next: recall and ranking" icon="magnifying-glass" href="/concepts/retrieval" horizontal>
-  Active vs deep, top_k, confidence.
+<Card title="SDK: scopes in code" icon="python" href="/sdk/scopes" horizontal>
+  `default_scope`, per-call `scope`, `InvalidScopeError`, and 403 handling.
 </Card>

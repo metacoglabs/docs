@@ -1,6 +1,6 @@
 ---
 title: "Benchmarks"
-description: "#1 on LoCoMo (93.3%) and LongMemEval_S (92.2%) — the two industry-standard long-term memory benchmarks."
+description: "96.07% on LoCoMo and 92.2% on LongMemEval_S — results, protocol, and methodology."
 ---
 
 export const Bar = ({label, pct, value, win}) => (
@@ -20,44 +20,69 @@ export const Chart = ({title, children}) => (
   </div>
 );
 
-Tex is the state of the art on long-term conversational memory. Below are the full results from the two benchmarks the field uses to compare systems: **LoCoMo** (EMNLP 2024) and **LongMemEval** (ICLR 2025).
+Results on the two benchmarks the field uses to compare long-term memory systems: **LoCoMo** (EMNLP 2024) and **LongMemEval** (ICLR 2025).
 
 <CardGroup cols={2}>
-  <Card title="LoCoMo · 93.3%" icon="trophy">
-    Full system. Previous SOTA: **EverMemOS at 92.3%**.
+  <Card title="LoCoMo · 96.07%" icon="trophy">
+    Tex full system on production, 1,906 / 1,984 questions. Reader **gpt-5.2** (reasoning effort medium), judge **gpt-4o**.
   </Card>
   <Card title="LongMemEval_S · 92.2%" icon="trophy">
-    Active-only. Previous SOTA among retrieval systems: **Emergence AI at 86.0%**.
+    Tex active tier, 500 questions. From our April 2026 benchmark report.
   </Card>
 </CardGroup>
 
-<Note>
-  Both numbers are reported with **gpt-4o-mini** as the reader and **gpt-4o** as the LLM-as-judge. Single-machine deployment; no distributed infrastructure. Methodology and reproducibility notes below.
-</Note>
-
 ## LoCoMo
 
-LoCoMo evaluates long-conversation memory across 10 multi-session conversations with **1,984 questions** spanning 5 categories: single-hop retrieval, multi-hop reasoning, temporal reasoning, open-domain inference, and adversarial abstention.
+LoCoMo evaluates long-conversation memory across 10 multi-session conversations with **1,984 questions** in 5 categories: single-hop retrieval, multi-hop reasoning, temporal reasoning, open-domain inference, and adversarial abstention.
+
+### Protocol
+
+<Note>
+  **96.07% is the best merged score over iterative retry rounds**, not a single pass.
+
+  1. **Initial pass** over all 1,984 questions: 86.34%.
+  2. **Retry rounds.** Each round re-asks only the questions judged wrong so far; verdicts for questions already judged correct are carried forward.
+  3. After three retry rounds the merged result is **1,906 / 1,984 = 96.07%**.
+</Note>
+
+| Setting | Value |
+| --- | --- |
+| System | Tex full system (active tier + long-term store and knowledge graph), running on the production deployment |
+| Dataset | LoCoMo, all 10 conversations, 1,984 QA pairs |
+| Reader | gpt-5.2, reasoning effort medium |
+| Judge | gpt-4o, LLM-as-judge, binary correct / incorrect |
+| Score | Judge accuracy, best merged result over iterative retry rounds (above) |
+| Date | September 2026 |
+
+### Rounds
+
+| Round | Questions asked | Overall |
+| --- | --- | --- |
+| Initial pass | 1,984 | 86.34% |
+| Retry 1 | previously wrong only | 92.19% |
+| Retry 2 | previously wrong only | 93.70% |
+| Retry 3 | previously wrong only | **96.07%** |
 
 ### Per-category results
 
-| Category | **Tex Full** | Tex Active | MemMachine v0.2 | Hindsight (Gemini-3) |
+| Category | Questions | **Tex (full system)** | MemMachine v0.2 | Hindsight (Gemini-3) |
 | --- | --- | --- | --- | --- |
-| Single-Hop | **96.08%** | 88.23% | 94.41% | 86.17% |
-| Multi-Hop | **92.14%** | 78.21% | 89.72% | 70.83% |
-| Temporal | **91.90%** | 87.23% | 89.10% | 83.80% |
-| Open-Domain | 94.79% | 67.71% | 75.00% | **95.12%** |
-| Adversarial | **99.33%** | 97.31% | — | — |
-| **Overall** | **93.3%** | 87.7% | 91.69% | 89.6% |
+| Single-Hop | 841 | **95.72%** | 94.41% | 86.17% |
+| Multi-Hop | 280 | **96.07%** | 89.72% | 70.83% |
+| Temporal | 321 | **95.64%** | 89.10% | 83.80% |
+| Open-Domain | 96 | 84.38% | 75.00% | **95.12%** |
+| Adversarial | 446 | **99.55%** | — | — |
+| **Overall** | **1,984** | **96.07%** | 91.69% | 89.6% |
+
+Competitor figures are as published by their authors ([references](#references)); their protocols differ from ours.
 
 ### Competitive landscape
 
 <Chart title="LoCoMo · Overall Accuracy">
-  <Bar label="Tex (Full System)" pct={93.3} value="93.3%" win />
+  <Bar label="Tex (Full System)" pct={96.07} value="96.07%" win />
   <Bar label="EverMemOS"         pct={92.3} value="92.3%" />
   <Bar label="MemMachine v0.2"   pct={91.7} value="91.7%" />
   <Bar label="Hindsight"         pct={89.6} value="89.6%" />
-  <Bar label="Tex (Active Only)" pct={87.7} value="87.7%" win />
   <Bar label="Zep"               pct={85}   value="~85%" />
   <Bar label="Letta / MemGPT"    pct={83}   value="~83%" />
   <Bar label="Supermemory"       pct={70}   value="~70%" />
@@ -65,12 +90,16 @@ LoCoMo evaluates long-conversation memory across 10 multi-session conversations 
 </Chart>
 
 <Tip>
-  Tex's **99.33% on adversarial questions** is the strongest signal: the system correctly *refuses* to answer unanswerable questions rather than hallucinating. Most competitors don't disclose this category.
+  **99.55% on adversarial questions**: the system correctly declines to answer unanswerable questions rather than hallucinating.
 </Tip>
 
 ## LongMemEval_S
 
 LongMemEval_S evaluates memory over **500 questions across ~48 sessions each (~115K tokens)**, testing information extraction, multi-session reasoning, temporal reasoning, knowledge updates, and abstention.
+
+<Note>
+  These results are from our April 2026 benchmark report on an earlier version of the system (active tier only, LLM-as-judge). They have not been re-run on the current system.
+</Note>
 
 ### Per-ability results
 
@@ -103,67 +132,9 @@ LongMemEval_S evaluates memory over **500 questions across ~48 sessions each (~1
   <Bar label="Oracle GPT-4o"       pct={82.4} value="82.4%" />
 </Chart>
 
-<Tip>
-  Tex's **92.2% matches Oracle GPT-o3 (92.0%)** and beats Oracle GPT-4o (82.4%) — meaning Tex's retrieval surfaces relevant context more effectively than oracle-selected sessions for many question types.
-</Tip>
+### Ablation — what each capability contributed
 
-## Latency
-
-| Configuration | p50 | p90 | End-to-end (incl. reader) |
-| --- | --- | --- | --- |
-| **Tex (Active)** | **~120ms** | ~200ms | ~0.6s |
-| **Tex (Full System)** | ~350ms | ~500ms | ~1.0s |
-
-<Chart title="Retrieval latency vs competitors · lower is better">
-  <Bar label="Tex (Active Only)"     pct={2.1}  value="120ms"  win />
-  <Bar label="Tex (Full System)"     pct={6.2}  value="350ms"  win />
-  <Bar label="Supermemory"           pct={5.3}  value="300ms" />
-  <Bar label="Emergence AI"          pct={63.7} value="3.6s" />
-  <Bar label="Zep"                   pct={100}  value="5.65s" />
-</Chart>
-
-## Token efficiency
-
-### Per-question breakdown (Tex)
-
-| Component | Tokens |
-| --- | --- |
-| System prompt | ~138 |
-| User template | ~28 |
-| Retrieved context (avg 24 fragments × 44 tokens) | ~1,047 |
-| Question | ~20 |
-| **Total input per question** | **~1,233** |
-| Output (answer) | ~30 |
-
-### LLM tokens consumed on LoCoMo (1,984 questions)
-
-| System | Ingestion LLM | Reader | Total | Accuracy |
-| --- | --- | --- | --- | --- |
-| **Tex** | **0** | **2.4M** | **2.4M** | **93.3%** |
-| MemMachine Memory | not disclosed | 4.2M | 4.2M+ | 87.5% |
-| MemMachine Agent | not disclosed | 8.6M | 8.6M+ | 91.7% |
-| Mem0 | not disclosed | 19.2M | 19.2M+ | ~66% |
-
-<Chart title="Tokens per correct answer · lower is better">
-  <Bar label="Mem0"                pct={100}  value="~14,650+" />
-  <Bar label="MemMachine (Agent)"  pct={32.2} value="~4,720+" />
-  <Bar label="MemMachine (Memory)" pct={16.5} value="~2,420+" />
-  <Bar label="Tex (Full System)"   pct={8.8}  value="~1,296"   win />
-</Chart>
-
-<Tip>
-  **Tex uses zero LLM tokens during ingestion.** All embedding and indexing runs on offline models — no provider call per turn. Competitors typically run an LLM pass on every ingested message; those costs aren't always disclosed but are real.
-</Tip>
-
-### Headline efficiency claims
-
-- **27% more accurate than Mem0** with **87% fewer tokens** and **~95% lower latency**.
-- **5.8% more accurate than MemMachine Memory mode** with **43% fewer tokens**.
-- **Lowest tokens-per-correct-answer on the board** at ~1,296.
-
-## Ablation — what each capability contributes
-
-On LongMemEval_S, peeling layers off the production retrieval pipeline:
+From the same April 2026 report, peeling layers off the retrieval pipeline on LongMemEval_S:
 
 | Capability | What it does | Δ accuracy |
 | --- | --- | --- |
@@ -177,18 +148,16 @@ On LongMemEval_S, peeling layers off the production retrieval pipeline:
 
 ## Methodology
 
-- **Reader model**: `gpt-4o-mini`
-- **Judge model**: `gpt-4o`
-- **Evaluation**: LLM-as-judge, category-specific judge prompts, binary yes/no, averaged per category
-- **LoCoMo**: 10 conversations, 1,984 QA pairs, Tex Full System
-- **LongMemEval_S**: 500 questions, ~48 sessions each, Tex Active Only
-- **Infrastructure**: Single machine. No distributed cluster. Complete eval runs end-to-end without manual intervention.
+- **Evaluation:** LLM-as-judge with category-specific judge prompts, binary verdicts, averaged per category.
+- **LoCoMo (September 2026):** 10 conversations, 1,984 QA pairs, Tex full system on production; reader gpt-5.2 (reasoning effort medium); judge gpt-4o; best merged score over iterative retry rounds as described in [Protocol](#protocol).
+- **LongMemEval_S (April 2026):** 500 questions, ~48 sessions each, Tex active tier.
+- Competitor numbers are taken from the cited publications and were not reproduced by us.
 
 ## What's next
 
-- **MemoryAgentBench (ICLR 2026)** — next eval target; tests accurate retrieval, test-time learning, long-range understanding, conflict resolution.
-- **Multi-step reasoning** — two-pass retrieval + reasoning for complex counting / computation.
-- **LongMemEval_M** — scaling to 500+ sessions per question for extreme long-memory evaluation.
+- **MemoryAgentBench (ICLR 2026)** — tests accurate retrieval, test-time learning, long-range understanding, conflict resolution.
+- **LongMemEval_S on the current system** — re-running with the full system.
+- **LongMemEval_M** — scaling to 500+ sessions per question.
 
 ## References
 

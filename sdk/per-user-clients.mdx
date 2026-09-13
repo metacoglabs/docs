@@ -1,0 +1,115 @@
+---
+title: "Per-user clients"
+description: "Act as each end user of your app — the production pattern."
+---
+
+Memory, scopes, and permissions belong to the **user in the token**. To act for one end user, pass their id with your API key:
+
+```python
+import os
+from tex import Tex
+
+alice = Tex(
+    api_key=os.environ["TEX_API_KEY"],
+    base_url="https://api.getmetacognition.com",
+    org_id=os.environ["TEX_ORG_ID"],
+    user_id="alice",
+    session_id="chat-42",   # optional
+)
+alice.recall("what did I order last week?", session_id="chat-42")
+```
+
+## What happens
+
+<Steps>
+  <Step title="One token exchange">
+    On the first call the SDK sends `POST /auth/token-exchange` with `{api_key, user_id, session_id}` and receives an access token minted for `alice`.
+  </Step>
+  <Step title="Identity checks">
+    The SDK checks the token's `user_id` is really `alice`, and — when you pass `org_id` — that the key belongs to that org. Otherwise it raises `AuthenticationError`.
+  </Step>
+  <Step title="Every call acts as alice">
+    The token is sent on every call, including the Supermemory-compatible ones (`documents.*`, `memories.*`, `search.*`, `profile`). Writes default to `user:alice`; reads span alice's visible scopes.
+  </Step>
+  <Step title="Expiry">
+    On a `401` the SDK uses the refresh token, and otherwise re-exchanges the key for the same `user_id`.
+  </Step>
+</Steps>
+
+## Key requirements
+
+The API key needs an **impersonation-capable scope**: `impersonate_user` (also accepted: `tenant:write:any_user`, `agent`, `service`, `system`, `*`). Keys created at signup carry `*`.
+
+Without one, the exchange returns `403 user_id override not permitted` and the SDK raises:
+
+```text
+PermissionDeniedError: /auth/token-exchange refused user_id='alice' (HTTP 403: …).
+The API key needs an impersonation-capable scope (impersonate_user, tenant:write:any_user, agent, service, system, *) to mint per-user tokens.
+```
+
+<Warning>
+  Per-user tokens carry the key's scopes as roles. For a key used only to mint per-user tokens, request exactly `["impersonate_user"]` — not `admin` or `developer` — and keep it on your server.
+</Warning>
+
+## The `act` claim
+
+The minted token includes `"act": {"sub": "apikey_<key id prefix>"}`. A token with `act` is locked to its user:
+
+- It can't mint a token for another user.
+- On `/v3` and `/v4`, a `container_tag` naming a different user returns `403 container_tag_not_permitted`. Omit `container_tag`, or pass the user's own id.
+- It can't list, mint, or revoke API keys.
+
+## Caching clients
+
+Build one client per user and reuse it — each new client costs a token exchange.
+
+```python
+import os
+from functools import lru_cache
+from tex import Tex
+
+@lru_cache(maxsize=1024)
+def tex_for(user_id: str) -> Tex:
+    return Tex(
+        api_key=os.environ["TEX_API_KEY"],
+        base_url=os.environ["TEX_BASE_URL"],
+        org_id=os.environ["TEX_ORG_ID"],
+        user_id=user_id,
+    )
+
+tex_for("alice").recall("budget assumptions", session_id="s1")
+```
+
+Use stable, opaque user ids (your IdP subject, a UUID). Ids made of letters, digits, `_`, and `-` (≤ 100 chars) can also be used as a `container_tag`.
+
+## Key identity vs per-user
+
+| | `Tex(api_key=...)` | `Tex(api_key=..., user_id=...)` |
+| --- | --- | --- |
+| Identity | `apikey_<id>` — shared by every caller | The end user |
+| Memory isolation | None between your end users | Per user |
+| Team / project scopes | The key identity's memberships | The user's memberships |
+| `/v3`, `/v4` credential | Raw API key; `container_tag` selects the end user | Per-user token; `container_tag` must be omitted or the user's own id |
+
+## Clients that must not hold the key
+
+Mobile, desktop, and browser apps must never hold an API key. Mint the token on your server and pass it to the app:
+
+```python
+device_client = Tex(
+    access_token=token_from_broker,
+    base_url="https://api.getmetacognition.com",
+    org_id="org_abc",
+    user_id="alice",
+)
+```
+
+See the [ReM integration guide](/integrations/rem) for the full token-broker pattern.
+
+## Development servers
+
+`Tex(base_url="http://localhost:8000", org_id=..., user_id=...)` with no key calls `POST /auth/login`, which only exists when a self-hosted backend runs with `DEBUG=true`. Production returns `403`.
+
+<Card title="Next: Scopes" icon="layer-group" href="/sdk/scopes" horizontal>
+  Share memory with teams and projects.
+</Card>

@@ -1,0 +1,95 @@
+---
+title: "Get document status"
+description: "Fetch a document and its ingestion status."
+api: "GET https://api.getmetacognition.com/v3/documents/{id}"
+---
+
+Supermemory-compatible. The REST equivalent of `tex.documents.get(id)`. For ids returned by [`POST /v3/documents`](/api-reference/documents/add-document) (`doc-…`), returns the document with its processing status.
+
+## Headers
+
+```http
+Authorization: Bearer <access_token or API key>
+```
+
+## Path
+
+<ParamField path="id" type="string" required>
+  The `id` returned when the document was added.
+</ParamField>
+
+## Query
+
+<ParamField query="containerTag" type="string">
+  End user for raw-API-key callers. Per-user tokens: omit, or the user's own id.
+</ParamField>
+
+## Response — `200`
+
+Abridged; fields without a value are returned as `null`.
+
+```json
+{
+  "id": "doc-3b1f0c9e…",
+  "status": "chunking",
+  "type": "text",
+  "content": "FY27 budget memo …",
+  "title": null,
+  "metadata": {
+    "scope": "project:budget-cycle-2027",
+    "ingestionJobId": "…",
+    "ingestionStep": "transforming_data",
+    "ingestionProgress": 40
+  },
+  "containerTags": ["alice"],
+  "createdAt": "2026-09-14T10:00:00Z",
+  "updatedAt": "2026-09-14T10:00:40Z"
+}
+```
+
+### `status`
+
+| Value | Meaning |
+| --- | --- |
+| `queued` | Waiting to start |
+| `extracting` | Parsing the content |
+| `chunking` | Transforming into chunks |
+| `indexing` | Writing records into the long-term store |
+| `done` | Finished |
+| `failed` | Failed — see `metadata.ingestionError` |
+| `unknown` | Unrecognised pipeline state |
+
+`metadata` includes `scope` (the document's effective write scope), `ingestionJobId`, `ingestionStep`, `ingestionProgress`, `ingestionError`, and `author` when present.
+
+## Visibility
+
+The caller can read the document when its write scope — or `user:<owner>` for a document added without a scope — is one of the caller's visible scopes. Otherwise the response is `404`, identical to a missing document.
+
+## Errors
+
+| Status | When |
+| --- | --- |
+| `401` | Missing or invalid credential |
+| `403` | `container_tag_not_permitted` |
+| `404` | `{"error": "NotFound", "details": "Document not found"}` — missing or not visible |
+| `502` / `503` | Ingestion pipeline unavailable or erroring — retry with backoff |
+
+## Update and delete
+
+`PATCH` and `DELETE /v3/documents/{id}` on a `doc-…` id return `409 Conflict`: memories extracted from a pipeline document are not attributable to its id. Add a new document instead.
+
+## Polling
+
+Poll with backoff (for example 2s doubling to 30s). Processing time depends on document size and pipeline load.
+
+<CodeGroup>
+```bash cURL
+curl -H "Authorization: Bearer $JWT" \
+  https://api.getmetacognition.com/v3/documents/doc-3b1f0c9e
+```
+
+```python Python (SDK)
+doc = tex.documents.get("doc-3b1f0c9e")
+print(doc.status, doc.metadata.get("ingestionStep"))
+```
+</CodeGroup>

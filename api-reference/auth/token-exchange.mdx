@@ -1,16 +1,22 @@
 ---
 title: "Exchange API key"
-description: "Exchange an API key for a short-lived JWT pair."
+description: "Exchange an API key for a JWT pair — for the key's identity or for a specific end user."
 api: "POST https://api.getmetacognition.com/auth/token-exchange"
 ---
 
-Trades an API key for a JWT access/refresh pair. The Python SDK does this automatically — call this directly only if you're integrating from another language or brokering tokens in a separate service.
+Trades an API key for a JWT access/refresh pair. The Python SDK does this automatically. Call it directly from another language, or from a token broker that mints per-user tokens for client apps.
+
+<Warning>
+  Call this endpoint only from your server. Never embed an API key in a mobile, desktop, or browser app.
+</Warning>
 
 ## Body
 
 ```json
 {
-  "api_key": "tex_live_..."
+  "api_key": "tex_live_...",
+  "user_id": "alice",
+  "session_id": "chat-42"
 }
 ```
 
@@ -18,14 +24,22 @@ Trades an API key for a JWT access/refresh pair. The Python SDK does this automa
   Your API key.
 </ParamField>
 
+<ParamField body="user_id" type="string">
+  Mint the token **for this end user** (1–256 chars). Requires a key with an impersonation-capable scope: `impersonate_user`, `tenant:write:any_user`, `agent`, `service`, `system`, or `*`. Omit it for a token as the key's own identity (`apikey_<first 8 chars of key id>`).
+</ParamField>
+
+<ParamField body="session_id" type="string">
+  Optional session id carried in the token (1–256 chars).
+</ParamField>
+
 ## Response — `200`
 
 <ResponseField name="access_token" type="string">
-  RS256-signed JWT. Send as `Authorization: Bearer <access_token>` on subsequent calls. Lifetime: 24h.
+  RS256-signed JWT. Send as `Authorization: Bearer <access_token>`. Lifetime: 24h.
 </ResponseField>
 
 <ResponseField name="refresh_token" type="string">
-  Refresh JWT. Use to obtain a new access token without re-exchanging the API key. Lifetime: 7d.
+  Refresh JWT for [`/auth/refresh`](/api-reference/auth/refresh). Lifetime: 7 days.
 </ResponseField>
 
 <ResponseField name="token_type" type="string">
@@ -33,8 +47,16 @@ Trades an API key for a JWT access/refresh pair. The Python SDK does this automa
 </ResponseField>
 
 <ResponseField name="expires_in" type="number">
-  Access-token lifetime in seconds.
+  Access-token lifetime in seconds (`86400`).
 </ResponseField>
+
+## Errors
+
+| Status | When |
+| --- | --- |
+| `401` | Unknown or revoked API key (`"Invalid API Key"`) |
+| `403` | `user_id` given, but the key has no impersonation-capable scope (`"user_id override not permitted"`) |
+| `422` | Empty `user_id` / `session_id`, or longer than 256 chars |
 
 ## Example
 
@@ -42,7 +64,7 @@ Trades an API key for a JWT access/refresh pair. The Python SDK does this automa
 ```bash cURL
 curl -X POST https://api.getmetacognition.com/auth/token-exchange \
   -H 'content-type: application/json' \
-  -d '{"api_key":"tex_live_..."}'
+  -d '{"api_key":"tex_live_...","user_id":"alice"}'
 ```
 
 ```python Python
@@ -50,19 +72,20 @@ import httpx
 
 resp = httpx.post(
     "https://api.getmetacognition.com/auth/token-exchange",
-    json={"api_key": "tex_live_..."},
+    json={"api_key": api_key, "user_id": "alice"},
+    timeout=10,
 )
-tokens = resp.json()
-access = tokens["access_token"]
+resp.raise_for_status()
+access = resp.json()["access_token"]
 ```
 
-```js JavaScript
+```js JavaScript (server-side)
 const resp = await fetch(
   "https://api.getmetacognition.com/auth/token-exchange",
   {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ api_key: "tex_live_..." }),
+    body: JSON.stringify({ api_key: process.env.TEX_API_KEY, user_id: "alice" }),
   }
 );
 const tokens = await resp.json();
@@ -80,17 +103,24 @@ const tokens = await resp.json();
 
 ## JWT contents
 
-Decode the access token (don't *trust* the contents — verify with the [JWKS endpoint](https://api.getmetacognition.com/.well-known/jwks.json) if you need to):
+Access token for a specific user:
 
 ```json
 {
-  "org_id": "org_79d0fHwDRhoZ8Ww7",
-  "user_id": "apikey_a1247653",
-  "roles": ["*"],
-  "exp": 1778147808,
-  "iat": 1778061408,
+  "org_id": "acme",
+  "user_id": "alice",
+  "session_id": "chat-42",
+  "roles": ["impersonate_user"],
+  "act": {"sub": "apikey_a1247653"},
+  "exp": 1789390800,
+  "iat": 1789304400,
   "type": "access"
 }
 ```
 
-The `org_id` and `user_id` claims are what server-side scoping reads. They cannot be overridden by request bodies.
+- `roles` are the key's scopes. Per-user tokens inherit them — mint broker keys with exactly `["impersonate_user"]`.
+- `act` marks a token minted for a specific user. Such a token can never act as another user.
+- `session_id` and `act` are absent when not applicable.
+- Visible scopes are not in the token; the server resolves them from memberships.
+
+The `org_id` and `user_id` claims decide identity and tenancy. Request bodies can't override them.

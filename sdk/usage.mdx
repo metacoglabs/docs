@@ -9,32 +9,28 @@ tex.usage.summary()                  # current calendar month
 tex.usage.summary(month="2026-03")   # specific month
 ```
 
-These calls don't count against your own quota — query them as often as you want.
+The org comes from the token — no `org_id` argument. These calls are not metered and don't count against your quota.
 
-## `tex.usage.today()`
-
-```python
-status = tex.usage.today()
-```
+## `tex.usage.today()` → `UsageQuotaStatus`
 
 <ResponseField name="tokens_in_used" type="int">
-  Tokens you've sent us today (UTC day).
+  Tokens you've sent today (UTC day), across the org.
 </ResponseField>
 
 <ResponseField name="tokens_out_used" type="int">
-  Tokens we've returned to you today.
+  Tokens returned to the org today.
 </ResponseField>
 
 <ResponseField name="tokens_in_limit" type="int">
-  Daily ingress cap. `1_000_000` on the free tier.
+  Daily ingress cap. `1_000_000` by default.
 </ResponseField>
 
 <ResponseField name="tokens_out_limit" type="int">
-  Daily egress cap. `5_000_000` on the free tier.
+  Daily egress cap. `5_000_000` by default.
 </ResponseField>
 
 <ResponseField name="period" type="str">
-  Always `"day_utc"`.
+  `"day_utc"`.
 </ResponseField>
 
 <ResponseField name="period_start" type="str">
@@ -52,7 +48,7 @@ print(f"out: {status.tokens_out_used:,} / {status.tokens_out_limit:,}")
 print(f"resets at: {status.period_end}")
 ```
 
-## `tex.usage.summary(month=None)`
+## `tex.usage.summary(month=None)` → `UsageWindow`
 
 Calendar-month rollup, UTC.
 
@@ -61,15 +57,15 @@ Calendar-month rollup, UTC.
 </ParamField>
 
 <ResponseField name="period" type="str">
-  Always `"month"`.
+  `"month"`.
 </ResponseField>
 
 <ResponseField name="start" type="str">
-  ISO 8601 timestamp of the first second of the month.
+  ISO 8601 timestamp of the first moment of the month.
 </ResponseField>
 
 <ResponseField name="end" type="str">
-  ISO 8601 timestamp of the first second of the next month.
+  ISO 8601 timestamp of the first moment of the next month.
 </ResponseField>
 
 <ResponseField name="tokens_in" type="int">
@@ -81,14 +77,12 @@ Calendar-month rollup, UTC.
 </ResponseField>
 
 ```python
-import pandas as pd
-
-months = ["2026-01","2026-02","2026-03","2026-04","2026-05"]
-df = pd.DataFrame([
-    {"month": m, **tex.usage.summary(month=m).__dict__}
+months = ["2026-04", "2026-05", "2026-06", "2026-07", "2026-08", "2026-09"]
+rows = [
+    {"month": m, "tokens_in": w.tokens_in, "tokens_out": w.tokens_out}
     for m in months
-])
-df.set_index("month")[["tokens_in","tokens_out"]].plot.bar()
+    for w in [tex.usage.summary(month=m)]
+]
 ```
 
 ## Patterns
@@ -96,20 +90,19 @@ df.set_index("month")[["tokens_in","tokens_out"]].plot.bar()
 - **Per-response usage** is on every `remember` / `recall`:
 
   ```python
-  hits = tex.recall(q="...", session_id=sid)
-  print(hits.usage.tokens_in, hits.usage.tokens_out)
+  resp = tex.recall(q="...", session_id=sid)
+  print(resp.usage.tokens_in, resp.usage.tokens_out)
   ```
 
 - **Quota-aware routing** — gate non-essential paths past 90%:
 
   ```python
-  if tex.usage.today().tokens_in_used > 0.9 * tex.usage.today().tokens_in_limit:
+  status = tex.usage.today()
+  if status.tokens_in_used > 0.9 * status.tokens_in_limit:
       return generate_without_memory(query)
   ```
 
   Cache `usage.today()` on your side (≤ 60s) — this is soft gating, not strict.
-
-- **Usage charts** — call `summary(month="YYYY-MM")` for each of the last 6 months and render with whatever charting lib you use.
 
 <Card title="Next: Handle errors" icon="triangle-exclamation" href="/sdk/errors">
   Every exception class and how to handle it.
