@@ -1,0 +1,184 @@
+---
+title: "Deletions"
+description: "Soft-delete a memory, a scope, or a user in your org, and fetch the receipt."
+---
+
+Both endpoints require an **org admin** token: exchanged **without** `user_id` from a key with `admin` or `*`. Per-user tokens are refused with `403`. The org always comes from the token.
+
+A deletion hides the target from every read path — active recall, deep recall, search, `GET /v4/memories` — as soon as the request returns, and withdraws its vectors. It is a **soft** delete: storage is reclaimed after the retention window (7 days by default), when Tex runs the purge. See [Deletions](/sdk/deletions) for the model and its limitations.
+
+## `POST /me/deletions`
+
+```http
+POST /me/deletions
+Authorization: Bearer <org_admin_token>
+Content-Type: application/json
+```
+
+```json
+{
+  "target": {"kind": "user_scope", "value": "alice"},
+  "reason": "GDPR erasure request",
+  "idempotency_key": "erasure-412",
+  "mode": "soft"
+}
+```
+
+<ParamField body="target" type="object" required>
+  What to delete.
+
+  <Expandable title="properties">
+    <ParamField body="kind" type="string" required>
+      | `kind` | `value` | Deletes |
+      | --- | --- | --- |
+      | `memory` | A memory id | One memory |
+      | `user_scope` | A user id | Everything in that user's `user:<value>` scope |
+      | `scope` | A scope id, e.g. `team:eng` | Everything written to that scope by its members, and every membership of it. `org:` scopes are refused |
+      | `user` | A user id | The user's personal-scope data, their scope memberships, and their active-memory data |
+    </ParamField>
+    <ParamField body="value" type="string" required>
+      1–512 chars. For `kind: "scope"`, a canonical `"<kind>:<value>"` id.
+    </ParamField>
+    <ParamField body="owner_user_id" type="string">
+      `kind: "memory"` only: the user who owns the memory. Only the owner can delete it, and there is no default — without it nothing is deleted and the receipt is `partial`.
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+<ParamField body="reason" type="string">
+  Free text stored on the receipt, ≤ 2,000 chars.
+</ParamField>
+
+<ParamField body="idempotency_key" type="string">
+  ≤ 256 chars. A repeated key in the same org returns the first receipt with `"replayed": true` instead of running again.
+</ParamField>
+
+<ParamField body="mode" type="string" default="soft">
+  Only `soft` is accepted here. `purge` returns `400`.
+</ParamField>
+
+### Response — `200`
+
+The receipt:
+
+<ResponseField name="request_id" type="string">
+  Receipt id (UUID). Use it with `GET /me/deletions/{request_id}`.
+</ResponseField>
+
+<ResponseField name="status" type="string">
+  `completed` when every tier did everything it was asked; `partial` when an item was refused, a tier reported errors, or a single-memory deletion removed nothing.
+</ResponseField>
+
+<ResponseField name="purge_after" type="string | null">
+  ISO 8601 time the retention window ends.
+</ResponseField>
+
+<ResponseField name="replayed" type="boolean">
+  `true` when this receipt was returned for a repeated `idempotency_key`.
+</ResponseField>
+
+<ResponseField name="tiers" type="object">
+  Per-store outcome. Each tier has `status` (`ok` / `partial` / `error` / `skipped`) and `errors` (list of strings).
+
+  <Expandable title="tiers">
+    <ResponseField name="helixdb" type="object">
+      Long-term memory: `deleted`, `refused` (items only their owner can delete), `skipped_unscoped` (items with no scope, left alone by a shared-scope deletion).
+    </ResponseField>
+    <ResponseField name="active_memory" type="object">
+      Active memory: `fragments_deleted`, `kv_keys_deleted`, `episodes_tombstoned`, `episodes_deleted`. `skipped` for `kind: "memory"`.
+    </ResponseField>
+    <ResponseField name="auth_db" type="object">
+      Access grants, routing, and billing rows: `scope_memberships_deleted`, `episode_registry_deleted`, `episode_registry_retained`, `usage_events_deleted`, `usage_events_retained`. Usage events always survive a soft deletion.
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="not_covered" type="array">
+  Stores this deletion did not touch, as `{"tier", "reason"}`. Always includes `ingestion_pipeline` and `object_storage_s3`; a `scope` deletion adds `episode_registry`.
+</ResponseField>
+
+Also returned: `org_id`, `target` (`kind`, `value`), `mode`, `requested_by`, `requested_via` (`org_admin`), `reason`, `created_at`, `completed_at`.
+
+```json
+{
+  "request_id": "3b9d6c1e-5f2a-4c8e-9a71-0d2e4b6f8a10",
+  "org_id": "acme",
+  "target": {"kind": "user_scope", "value": "alice"},
+  "mode": "soft",
+  "status": "completed",
+  "requested_by": "apikey_1a2b3c4d",
+  "requested_via": "org_admin",
+  "reason": "GDPR erasure request",
+  "created_at": "2026-09-17T10:00:00.120000+00:00",
+  "completed_at": "2026-09-17T10:00:02.480000+00:00",
+  "purge_after": "2026-09-24T10:00:02.480000+00:00",
+  "replayed": false,
+  "tiers": {
+    "helixdb": {"status": "ok", "errors": [], "deleted": 42, "refused": 0, "skipped_unscoped": 0},
+    "active_memory": {"status": "ok", "errors": [], "fragments_deleted": 17, "kv_keys_deleted": 17, "episodes_tombstoned": 3, "episodes_deleted": 0},
+    "auth_db": {"status": "ok", "errors": [], "scope_memberships_deleted": 0, "episode_registry_deleted": 0, "episode_registry_retained": 0, "usage_events_deleted": 0, "usage_events_retained": 0}
+  },
+  "not_covered": [
+    {"tier": "ingestion_pipeline", "reason": "documents and jobs held by the ingestion service are not touched; ingestion purge is a deliberate follow-up phase"},
+    {"tier": "object_storage_s3", "reason": "raw uploaded objects in S3 are not deleted; the same follow-up phase owns them"}
+  ]
+}
+```
+
+A `user` target in soft mode also carries `tiers.auth_db.note`, explaining that usage events and routing rows are kept until purge.
+
+## `GET /me/deletions/{request_id}`
+
+```http
+GET /me/deletions/{request_id}
+Authorization: Bearer <org_admin_token>
+```
+
+Returns the stored receipt. A receipt from another org returns `404`. After the purge has run, the receipt also carries a `purge` object with the purge's own receipt.
+
+## Errors
+
+| Status | `message` | When |
+| --- | --- | --- |
+| `400` | `Only soft deletions can be requested here. …` | `mode` is not `soft` |
+| `401` | | Missing or invalid token |
+| `403` | `Requires an org admin key (admin/*) on a token not minted for a specific user` | Per-user token, or a key without `admin` / `*` |
+| `403` | `Deleting an org-wide scope removes every member's shared memory; contact support — this is a platform operation.` | `kind: "scope"` with an `org:` value |
+| `404` | `No user '<id>' is known in this organization` | `user` / `user_scope` target your org has no record of |
+| `404` | `Deletion request not found` | `GET` of an unknown or another org's receipt |
+| `422` | | Unknown `kind`, empty `value`, malformed scope id, field too long |
+
+## Not supported yet
+
+- **One document or one conversation on its own.** `DELETE /v3/documents/{id}` returns `409` for documents added through the ingestion pipeline. Delete the scope or user the content lives in instead. Per-document deletion is planned.
+- **Ingestion records and raw uploaded files** are not deleted (see `not_covered`).
+
+## Examples
+
+<CodeGroup>
+```bash cURL
+BASE=https://api.getmetacognition.com
+
+# Delete a team scope
+curl -s -X POST $BASE/me/deletions \
+  -H "Authorization: Bearer $ORG_ADMIN_JWT" -H 'content-type: application/json' \
+  -d '{"target":{"kind":"scope","value":"project:budget-cycle-2026"},"reason":"project closed","idempotency_key":"close-bc-2026"}'
+
+# Delete one memory owned by alice
+curl -s -X POST $BASE/me/deletions \
+  -H "Authorization: Bearer $ORG_ADMIN_JWT" -H 'content-type: application/json' \
+  -d '{"target":{"kind":"memory","value":"<memory id>","owner_user_id":"alice"}}'
+
+# Re-read a receipt
+curl -s $BASE/me/deletions/3b9d6c1e-5f2a-4c8e-9a71-0d2e4b6f8a10 \
+  -H "Authorization: Bearer $ORG_ADMIN_JWT"
+```
+
+```python Python SDK
+receipt = admin.deletions.delete_scope("project:budget-cycle-2026",
+                                       reason="project closed",
+                                       idempotency_key="close-bc-2026")
+admin.deletions.delete_memory(mem_id, owner_user_id="alice")
+admin.deletions.get(receipt.request_id)
+```
+</CodeGroup>

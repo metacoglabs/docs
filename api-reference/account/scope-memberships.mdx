@@ -1,0 +1,166 @@
+---
+title: "Scope memberships"
+description: "Grant, list, and revoke team and project access inside your own org."
+---
+
+Memberships decide which shared scopes a user can read and write. Every user implicitly sees `user:<user_id>` and `org:<org_id>`; a membership adds a `team:` or `project:` scope on top.
+
+All three endpoints require an **org admin** token: exchanged **without** `user_id` from a key with `admin` or `*`. Per-user tokens are refused with `403`, so a user can never grant themselves a scope. The org always comes from the token — an `org_id` in the body is ignored. SDK: [`tex.scopes`](/sdk/scopes#managing-memberships).
+
+<Warning>
+  Call these from a server that holds the org admin key. Never from a token-broker key (`["impersonate_user"]`) or a device token.
+</Warning>
+
+## Propagation
+
+A change reaches the user on their **next token refresh — allow up to 1 hour**. Tokens already issued keep their old set of scopes until then: a new grant isn't visible at once, and a revoked scope stays readable until the token is refreshed. Every grant response carries a `note` with this caveat.
+
+## What can be granted
+
+Only `team:` and `project:` scopes.
+
+- `user:` — a personal scope, implicit for its own user. Granting it to someone else would expose that user's private memory. Refused with `403`.
+- `org:` — already implicit for every member of your org. Refused with `403`.
+
+You can grant a scope to a user who hasn't signed in yet. The grant takes effect the first time a token is minted for that user in your org, so you can set up access before onboarding.
+
+## `POST /me/scope-memberships`
+
+Grant `scope_id` to `user_id`. Idempotent.
+
+```http
+POST /me/scope-memberships
+Authorization: Bearer <org_admin_token>
+Content-Type: application/json
+```
+
+```json
+{
+  "user_id": "alice",
+  "scope_id": "team:fpa-pod",
+  "role": "member"
+}
+```
+
+<ParamField body="user_id" type="string" required>
+  Your application's user id (the `user_id` you use for per-user tokens), 1–256 chars.
+</ParamField>
+
+<ParamField body="scope_id" type="string" required>
+  `"team:<value>"` or `"project:<value>"`, 1–256 chars. A malformed id returns `422`; a `user:` or `org:` id returns `403`.
+</ParamField>
+
+<ParamField body="role" type="string" default="member">
+  Role within the scope, 1–32 chars.
+</ParamField>
+
+### Response — `201 Created` (new) or `200 OK` (replay)
+
+```json
+{
+  "membership": {
+    "id": 42,
+    "org_id": "acme",
+    "user_id": "alice",
+    "scope_id": "team:fpa-pod",
+    "role": "member",
+    "created_at": "2026-09-17T10:00:00"
+  },
+  "created": true,
+  "note": "Membership changes take effect on the caller's next helix token refresh; already-issued tokens keep their old read-set for up to the 1h token TTL."
+}
+```
+
+Replaying an existing grant returns `200` with `"created": false`. Replaying with a different `role` updates the stored role.
+
+## `GET /me/scope-memberships`
+
+```http
+GET /me/scope-memberships?user_id=alice&scope_id=team:fpa-pod
+Authorization: Bearer <org_admin_token>
+```
+
+<ParamField query="user_id" type="string">
+  Only this user's grants.
+</ParamField>
+
+<ParamField query="scope_id" type="string">
+  Only grants of this scope.
+</ParamField>
+
+```json
+{
+  "memberships": [
+    {"id": 42, "org_id": "acme", "user_id": "alice", "scope_id": "team:fpa-pod", "role": "member", "created_at": "2026-09-17T10:00:00"}
+  ],
+  "total": 1
+}
+```
+
+Implicit `user:` and `org:` scopes are not rows and are never listed, so an empty list doesn't mean the user sees nothing.
+
+## `DELETE /me/scope-memberships`
+
+Revoke one grant. The key goes in the JSON body.
+
+```http
+DELETE /me/scope-memberships
+Authorization: Bearer <org_admin_token>
+Content-Type: application/json
+```
+
+```json
+{"user_id": "alice", "scope_id": "team:fpa-pod"}
+```
+
+Returns `204 No Content`. `404` if your org has no such grant.
+
+After propagation, the user's writes and narrowed reads into that scope return `403 scope_not_visible`, and unscoped reads stop including it. Memory already written into the scope stays there for the remaining members. To remove the data too, use [deletions](/api-reference/account/deletions).
+
+## Errors
+
+| Status | `message` | When |
+| --- | --- | --- |
+| `401` | | Missing or invalid token |
+| `403` | `Requires an org admin key (admin/*) on a token not minted for a specific user` | Per-user token, or a key without `admin` / `*` |
+| `403` | `Only team: and project: scopes can be granted. 'user:bob' is a personal scope: …` | `POST` with a `user:` scope |
+| `403` | `Only team: and project: scopes can be granted. 'org:acme' is implicit for every member of the org, …` | `POST` with an `org:` scope |
+| `404` | `No membership (user_id='alice', scope_id='team:fpa-pod') in this organization` | `DELETE` of a grant that doesn't exist |
+| `422` | | Malformed `scope_id`, missing field, field too long |
+
+## Examples
+
+<CodeGroup>
+```bash cURL
+BASE=https://api.getmetacognition.com
+
+# Grant the FP&A pod and the budget-cycle project
+for s in team:fpa-pod project:budget-cycle-2027; do
+  curl -s -X POST $BASE/me/scope-memberships \
+    -H "Authorization: Bearer $ORG_ADMIN_JWT" -H 'content-type: application/json' \
+    -d "{\"user_id\":\"alice\",\"scope_id\":\"$s\"}"
+done
+
+# List alice's grants
+curl -s "$BASE/me/scope-memberships?user_id=alice" \
+  -H "Authorization: Bearer $ORG_ADMIN_JWT"
+
+# Revoke
+curl -s -X DELETE $BASE/me/scope-memberships \
+  -H "Authorization: Bearer $ORG_ADMIN_JWT" -H 'content-type: application/json' \
+  -d '{"user_id":"alice","scope_id":"team:fpa-pod"}'
+```
+
+```python Python SDK
+admin = Tex(api_key=OWNER_KEY, base_url="https://api.getmetacognition.com")   # no user_id=
+
+admin.scopes.grant("alice", "team:fpa-pod")
+admin.scopes.grant("alice", "project:budget-cycle-2027")
+admin.scopes.list(user_id="alice")
+admin.scopes.revoke("alice", "team:fpa-pod")
+```
+</CodeGroup>
+
+<Note>
+  Tex operators manage grants across orgs with the platform endpoints in [Scope memberships (platform)](/api-reference/admin/scope-memberships).
+</Note>

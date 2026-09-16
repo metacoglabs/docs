@@ -2,7 +2,7 @@
 
 _Connect ReM, an on-device context layer for FP&A teams, to Tex with per-user tokens and hierarchical scopes._
 
-> Standalone copy of the Tex docs page `integrations/rem.mdx`. Matches tex-sdk 1.2.2 and https://api.getmetacognition.com.
+> Standalone copy of the Tex docs page `integrations/rem.mdx`. Matches tex-sdk 1.3.0 and https://api.getmetacognition.com.
 
 ReM runs on the analyst's device. It captures working context (notes, model reviews, variance commentary), surfaces it back in the UI, and shares the right slices with the right people: the analyst alone, the FP&A pod, the whole finance team, or everyone on one budget cycle.
 
@@ -14,7 +14,7 @@ Tex holds the memory. ReM never holds a Tex API key. Your backend holds the key 
 - **[End-to-end example](#end-to-end-example)**: Python broker, Python device client, raw HTTP for any language.
 
 > **Note:**
-> Everything on this page matches **tex-sdk 1.2.2** (`pip install tex-sdk==1.2.2`) and the production API at `https://api.getmetacognition.com`. The inactivity-window arguments need 1.2.1 or later; with 1.2.0, send that field over raw HTTP.
+> Everything on this page matches **tex-sdk 1.3.0** (`pip install tex-sdk==1.3.0`) and the production API at `https://api.getmetacognition.com`. Managing memberships with `tex.scopes` and offboarding with `tex.deletions` need 1.3.0; on older versions, call the same `/me/*` routes over raw HTTP. The inactivity-window arguments need 1.2.1 or later.
 
 ## Architecture
 
@@ -133,7 +133,7 @@ flowchart TD
 | `user:analyst-7f3a` | That analyst only, implicitly | Personal scratch notes. This is the default for every write. |
 
 > **Note:**
-> The org scope's value is your **Tex org id**. For org `acme-fpa`, the org scope is `org:acme-fpa`. A membership for `org:<some-other-org>` or `user:<some-other-user>` is rejected with `422`.
+> The org scope's value is your **Tex org id**. For org `acme-fpa`, the org scope is `org:acme-fpa`. `org:` and `user:` scopes are implicit, so they can't be granted: only `team:` and `project:` memberships exist.
 
 ### Visible scopes
 
@@ -186,41 +186,64 @@ A malformed id such as `"budget-2027"` never reaches the server. The SDK raises 
 
 ### Managing memberships
 
-Memberships go through the admin API. Today that API requires the platform `admin` role, so a Tex operator runs it, not your broker. There's no org-scoped admin variant yet. Request grants through Tex onboarding or support, or through an operator-run admin integration.
+Your team manages memberships itself, from the **owner key on the ReM server** — the org admin key (`["*"]`) created at signup, on a client built without `user_id=`. Use `tex.scopes` in the SDK, or `/me/scope-memberships` over HTTP. See the Tex docs page `sdk/scopes` (Managing memberships).
 
-`Grant`
+- **Never use the broker key or a device token.** Both get `403`: the broker key (`["impersonate_user"]`) isn't an org admin, and a per-user token is always refused, so an analyst can never grant themselves a scope.
+- **Only `team:` and `project:` scopes can be granted.** `user:` and `org:` scopes are implicit; granting one raises `ScopeNotDelegableError` in the SDK (`403` over HTTP).
+- **You can grant before first sign-in.** A grant for an analyst who hasn't used ReM yet takes effect with their first token.
+- **Changes take effect on the analyst's next token refresh.** Allow up to 1 hour.
+
+`Python (owner key, ReM server)`
+
+```python
+import os
+from tex import Tex
+
+owner = Tex(api_key=os.environ["TEX_OWNER_API_KEY"],   # the ["*"] key — never the broker key
+            base_url="https://api.getmetacognition.com")
+
+grant = owner.scopes.grant("analyst-7f3a", "project:budget-cycle-2027")   # role="member"
+print(grant.created)   # False on a replay; a different role updates the stored role
+
+owner.scopes.list(user_id="analyst-7f3a")      # implicit user:/org: scopes are not listed
+owner.scopes.revoke("analyst-7f3a", "project:budget-cycle-2027")   # NotFoundError if absent
+```
+
+`Grant (HTTP)`
 
 ```bash
-curl -X POST https://api.getmetacognition.com/admin/scope-memberships \
-  -H "Authorization: Bearer $TEX_ADMIN_JWT" \
+curl -X POST https://api.getmetacognition.com/me/scope-memberships \
+  -H "Authorization: Bearer $TEX_OWNER_JWT" \
   -H 'content-type: application/json' \
-  -d '{"org_id":"acme-fpa","user_id":"analyst-7f3a","scope_id":"project:budget-cycle-2027","role":"member"}'
+  -d '{"user_id":"analyst-7f3a","scope_id":"project:budget-cycle-2027","role":"member"}'
 # 201 {"membership": {...}, "created": true, "note": "..."}
 # Replaying the same grant returns 200 with "created": false. A different role updates the stored role.
 ```
 
-`List`
+`List (HTTP)`
 
 ```bash
-curl -H "Authorization: Bearer $TEX_ADMIN_JWT" \
-  "https://api.getmetacognition.com/admin/scope-memberships?org_id=acme-fpa&user_id=analyst-7f3a"
+curl -H "Authorization: Bearer $TEX_OWNER_JWT" \
+  "https://api.getmetacognition.com/me/scope-memberships?user_id=analyst-7f3a"
 # {"memberships": [...], "total": 1}   (implicit user:/org: scopes are not rows)
 ```
 
-`Revoke`
+`Revoke (HTTP)`
 
 ```bash
-curl -X DELETE https://api.getmetacognition.com/admin/scope-memberships \
-  -H "Authorization: Bearer $TEX_ADMIN_JWT" \
+curl -X DELETE https://api.getmetacognition.com/me/scope-memberships \
+  -H "Authorization: Bearer $TEX_OWNER_JWT" \
   -H 'content-type: application/json' \
-  -d '{"org_id":"acme-fpa","user_id":"analyst-7f3a","scope_id":"project:budget-cycle-2027"}'
-# 200 {"removed": true, "note": "..."}   404 if no such grant
+  -d '{"user_id":"analyst-7f3a","scope_id":"project:budget-cycle-2027"}'
+# 204 No Content   404 if no such grant
 ```
+
+`$TEX_OWNER_JWT` is an access token from `POST /auth/token-exchange` with the owner key and **no** `user_id`.
 
 ### New members and removals
 
 - **New member.** Once propagated, the analyst sees everything already in the scope, including memory written before they joined. Data belongs to the scope, not to whoever wrote it. The documented guarantee is that a change takes effect on the analyst's next token refresh; allow up to 1 hour.
-- **Removed member.** Once propagated, reads narrowed to that scope and writes into it return `403`. Unscoped recall stops returning that scope's memory. Data already written stays in the scope, visible to remaining members. The analyst's personal `user:` memory isn't affected.
+- **Removed member.** Once propagated, reads narrowed to that scope and writes into it return `403`. Unscoped recall stops returning that scope's memory. Data already written stays in the scope, visible to remaining members. The analyst's personal `user:` memory isn't affected. To remove data as well, see [Offboarding an analyst](#offboarding-an-analyst).
 
 ## On-device flows
 
@@ -298,7 +321,7 @@ The trade-off:
 - **Longer window.** Memories stay in the fast active tier longer, so `mode="active"` keeps finding them. They reach long-term memory and the knowledge graph later, so graph-backed `deep` answers about that session arrive later.
 - **Shorter window.** Consolidation happens sooner. `mode="active"` stops finding the session sooner, so use `deep` for it.
 
-The org default is an org-admin setting. It needs a token exchanged **without** `user_id` from a key with `admin` or `*`, and per-user tokens get `403`. The broker key (`["impersonate_user"]`) can't change it. Keep a separate owner key for that, stored server-side and used only for admin tasks, or ask your Tex operator.
+The org default is an org-admin setting. It needs a token exchanged **without** `user_id` from a key with `admin` or `*`, and per-user tokens get `403`. The broker key (`["impersonate_user"]`) can't change it. Use the owner key for that, stored server-side and used only for admin tasks such as settings, memberships, and deletions.
 
 What this means for ReM:
 
@@ -728,7 +751,7 @@ On `401`, request a new token from your broker and retry once.
 
 **1. Onboard the org**
 
-Sign up at [the Tex dashboard](https://tex-dashboard-ashen.vercel.app/signup). Signup creates the org and an owner key (`["*"]`) — keep that one offline for key management and org settings. Then open **API Keys → New key** and choose **Broker (per-user tokens)**, which mints a key with exactly `["impersonate_user"]`. (A Tex operator can do the same with `POST /admin/onboard` and `"api_key_scopes": ["impersonate_user"]`.)
+Sign up at [the Tex dashboard](https://tex-dashboard-ashen.vercel.app/signup). Signup creates the org and an owner key (`["*"]`) — keep that one on the ReM server, away from devices, for key management, org settings, memberships, and deletions. Store it as `TEX_OWNER_API_KEY`. Then open **API Keys → New key** and choose **Broker (per-user tokens)**, which mints a key with exactly `["impersonate_user"]`. (A Tex operator can do the same with `POST /admin/onboard` and `"api_key_scopes": ["impersonate_user"]`.)
 
 **2. Store the broker key**
 
@@ -740,7 +763,7 @@ Use a stable, opaque id per analyst, such as your IdP subject mapped to `[A-Za-z
 
 **4. Design and grant scopes**
 
-Write down your teams and projects, for example `team:finance`, `team:fpa-pod`, `project:budget-cycle-2027`. Send the grants (`org_id`, `user_id`, `scope_id`, `role`) to the Tex operator, who applies them with `POST /admin/scope-memberships`.
+Write down your teams and projects, for example `team:finance`, `team:fpa-pod`, `project:budget-cycle-2027`. Grant them from the owner key with `owner.scopes.grant(user_id, scope_id)` (or `POST /me/scope-memberships`). You can grant before an analyst's first sign-in. Allow up to 1 hour before the smoke test.
 
 **5. Configure the base URL**
 
@@ -755,20 +778,66 @@ Run each check and confirm the result:
 - Non-member C gets `403 scope_not_visible` on `scope="team:fpa-pod"`.
 - A's token with `containerTag` set to B's id gets `403 container_tag_not_permitted`.
 
+## Offboarding an analyst
+
+When an analyst leaves or should lose access, do these in order from the ReM server:
+
+**1. Stop minting tokens**
+
+Disable the analyst in your IdP and evict their cached token, so the broker refuses them. Their last access token can stay valid for up to 24 hours.
+
+**2. Revoke their memberships**
+
+List and revoke their `team:` / `project:` grants with the owner key. Access narrows on their next token refresh (up to 1 hour).
+
+```python
+for m in owner.scopes.list(user_id="analyst-7f3a").memberships:
+    owner.scopes.revoke(m.user_id, m.scope_id)
+```
+
+Skip this if you run `delete_user` in the next step — it removes every membership of the user.
+
+**3. Delete their data**
+
+Choose what to remove:
+
+- `owner.deletions.delete_user_scope("analyst-7f3a")` — their personal notes only. What they wrote to `team:` / `project:` scopes stays for the team.
+- `owner.deletions.delete_user("analyst-7f3a")` — their personal notes, all their memberships, and their active-memory data in every scope. Long-term memory they wrote to shared scopes stays with those scopes.
+
+```python
+receipt = owner.deletions.delete_user("analyst-7f3a", reason="offboarding",
+                                      idempotency_key="offboard-analyst-7f3a")
+```
+
+Deleted content stops appearing in recall and search immediately. Storage is reclaimed after the retention window.
+
+**4. Check the receipt**
+
+- `receipt.status == "completed"` — every store did what it was asked. `"partial"` — read `receipt.tiers.helixdb.refused` and each tier's `errors`, fix the cause, and run again with a new `idempotency_key`.
+- `receipt.tiers.auth_db.scope_memberships_deleted` — grants removed.
+- `receipt.purge_after` — when storage reclaim can happen (7 days by default).
+- `receipt.not_covered` — lists `ingestion_pipeline` and `object_storage_s3`: documents the analyst uploaded are not removed by this call.
+- Keep `receipt.request_id`; `owner.deletions.get(request_id)` returns the receipt later.
+
+Deleting one uploaded document or one conversation on its own isn't supported yet (`documents.delete` returns `409`). If an analyst's documents must go, delete the scope they were written to. See the Tex docs page `sdk/deletions`.
+
 ## Troubleshooting
 
 | Symptom | Cause | Fix |
 | --- | --- | --- |
 | `401` on any call (`AuthenticationError`) | Access token expired or invalid | Get a new token from the broker and rebuild the client |
 | `403 user_id override not permitted` at the broker | Broker key has no impersonation scope | Mint a broker key with `["impersonate_user"]` |
-| `403` with `details.error = "scope_not_visible"` | Write into, or narrowed read of, a scope the analyst isn't a member of | Request the membership, then retry after propagation (up to 1 hour). `visible_scopes` in the body shows what the analyst can see. |
+| `403` with `details.error = "scope_not_visible"` | Write into, or narrowed read of, a scope the analyst isn't a member of | Grant the membership from the owner key (`owner.scopes.grant`), then retry after propagation (up to 1 hour). `visible_scopes` in the body shows what the analyst can see. |
 | `403` with `error = "container_tag_not_permitted"` | `containerTag` names another user on `/v3` or `/v4` | Omit `container_tag`, or pass the analyst's own `user_id` |
 | `404` on `documents.get` | Wrong id, or a document in a scope or user the analyst can't see | Check the stored id and the write scope. Visibility failures also look like `404`. |
 | `documents.get` status `failed` | Processing failed after automatic retries of transient provider errors | Read `metadata["ingestionError"]`, fix the content if needed, and re-add the document with `documents.add` (new id). Discard the failed id. |
-| `409` on `documents.update` or `documents.delete` | `doc-…` ids from the ingestion pipeline can't be changed | Add a new document version |
+| `409` on `documents.update` or `documents.delete` | `doc-…` ids from the ingestion pipeline can't be changed or deleted by id | Add a new document version. To remove content, delete the scope or user it was written to |
+| `403` on `/me/scope-memberships` or `/me/deletions` | Called with the broker key, a device token, or a client built with `user_id=` | Use the owner key on a client without `user_id=` |
+| `ScopeNotDelegableError` on `scopes.grant` | Granting a `user:` or `org:` scope | Grant a `team:` or `project:` scope; the others are implicit |
+| Deletion receipt `status` is `partial` | Some items were refused (only their owner can delete them) or a store reported errors | Read `tiers.*.refused` and `errors`, then run again with a new `idempotency_key` |
 | `422` with `loc` ending in `timestamp` | A turn has no `timestamp` | Stamp every turn with an ISO-8601 time at capture |
 | `422` on `role` | Role other than `user` or `assistant` | Map system or tool messages to `assistant`, or drop them |
-| `422` on `scope.org_id` from the SDK | SDK 1.2.0–1.2.1: `Tex(access_token=...)` built without `org_id`, then unscoped `remember` or `recall` | Upgrade to 1.2.2, or pass `org_id` and `user_id` to the constructor |
+| `422` on `scope.org_id` from the SDK | SDK 1.2.0–1.2.1: `Tex(access_token=...)` built without `org_id`, then unscoped `remember` or `recall` | Upgrade to 1.2.2 or later, or pass `org_id` and `user_id` to the constructor |
 | `InvalidScopeError` (client-side) | Scope isn't a `<kind>:<value>` id | Use `user:`, `team:`, `org:`, or `project:` plus a value |
 | `429` with `quota_exceeded` | Daily org token quota reached | Degrade to no-memory mode until 00:00 UTC. Queue writes. |
 | Recent session missing from recall | Episode closed after its inactivity window and was consolidated | Use `mode="deep"`, or give that surface a longer window |
@@ -792,7 +861,7 @@ After the membership propagates (allow up to 1 hour), everything already in that
 
 ### What happens when someone is removed from a scope, or leaves?
 
-After propagation, reads narrowed to the scope and writes into it return `403`, and unscoped recall stops including it. Data they wrote to the scope stays for the remaining members. To offboard entirely, disable them in your IdP so the broker stops minting. Their last access token can stay valid for up to 24 hours.
+After propagation, reads narrowed to the scope and writes into it return `403`, and unscoped recall stops including it. Data they wrote to the scope stays for the remaining members. To offboard entirely, disable them in your IdP so the broker stops minting (their last access token can stay valid for up to 24 hours), then revoke their memberships and delete their data — see [Offboarding an analyst](#offboarding-an-analyst).
 
 ### Does session_id keep sessions or users apart?
 

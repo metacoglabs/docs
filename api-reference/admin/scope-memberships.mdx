@@ -1,13 +1,15 @@
 ---
-title: "Scope memberships"
-description: "Grant, list, and revoke team, project, and org scope memberships."
+title: "Scope memberships (platform)"
+description: "Grant, list, and revoke scope memberships in any org. Tex operators only."
 ---
 
 Memberships decide which shared scopes a user can read and write. Every user implicitly sees `user:<user_id>` and `org:<org_id>`; memberships add `team:`, `project:`, and other scopes on top.
 
 <Warning>
-  These are **platform-admin** endpoints: the token must carry the `admin` role. Today they are operated by Tex for your org — there is no org-scoped admin variant yet. Contact Tex to have grants applied, and never give an `admin` key to an application.
+  These are **platform-admin** endpoints for Tex operators; a customer key gets `403`. **Org admins manage their own org's grants with [`/me/scope-memberships`](/api-reference/account/scope-memberships)** (SDK: [`tex.scopes`](/sdk/scopes#managing-memberships)) — no request to Tex needed. Never give an `admin` key to an application.
 </Warning>
+
+Differences from the org surface: `org_id` is named on every call, and any scope kind can be granted, subject to the consistency rule on `scope_id` below. SDK: `tex.admin.scopes.grant(user_id, scope, org_id=..., role="member")`, `revoke(user_id, scope, org_id=...)`, `list(org_id=None, user_id=None)`.
 
 ## Propagation
 
@@ -123,7 +125,7 @@ After propagation, the user's writes and narrowed reads into that scope return `
 | Status | When |
 | --- | --- |
 | `401` | Missing or invalid token |
-| `403` | Token doesn't carry the `admin` role |
+| `403` | Not a platform-admin token (including org owner keys and per-user tokens) |
 | `404` | `DELETE` of a grant that doesn't exist |
 | `422` | Malformed `scope_id`, `org:` / `user:` scope inconsistent with the row, field length |
 

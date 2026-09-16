@@ -97,6 +97,7 @@
         "sdk/recall",
         "sdk/documents",
         "sdk/memories",
+        "sdk/deletions",
         "sdk/search",
         "sdk/usage",
         "sdk/errors"
@@ -119,7 +120,9 @@
           "pages": [
             "api-reference/account/me",
             "api-reference/account/api-keys",
-            "api-reference/account/settings"
+            "api-reference/account/settings",
+            "api-reference/account/scope-memberships",
+            "api-reference/account/deletions"
           ]
         },
         {
@@ -146,7 +149,8 @@
         {
           "group": "Admin",
           "pages": [
-            "api-reference/admin/scope-memberships"
+            "api-reference/admin/scope-memberships",
+            "api-reference/admin/deletions"
           ]
         }
       ]

@@ -1,6 +1,6 @@
 ---
 title: "Memories"
-description: "Add, version, and forget short memory items (Supermemory-compatible)."
+description: "Add, edit, and forget short memory items, and read an edit's history (Supermemory-compatible)."
 ---
 
 Memories are short facts — "prefers the driver-based forecast model" — written directly, without a conversation. They are stored in the long-term store and, best-effort, in the active tier. Calls `/v4/memories`.
@@ -50,11 +50,50 @@ tex.memories.update_memory(
 ) -> MemoryUpdateResponse   # id, memory, version, parent_memory_id, root_memory_id, created_at
 ```
 
-Creates a new version pointing at the original. Identify the original by `id`, or by exact `content`. `new_content` is required.
+Writes a new version and **retires the one it replaces**. Identify the memory to edit by `id`, or by exact `content`. `new_content` is required. `404` if the memory isn't found.
 
 ```python
-tex.memories.update_memory(new_content="Alice and Bob own the EMEA travel budget",
-                           id="3f0c…")
+v2 = tex.memories.update_memory(new_content="Alice and Bob own the EMEA travel budget",
+                                id="3f0c…")
+print(v2.id, v2.version, v2.parent_memory_id, v2.root_memory_id)
+```
+
+### What an edit does
+
+- **The new version is a new memory** with a new `id`. `version` counts up from the memory you edited (a memory from `memories.add` is version 1, so its first edit is 2, then 3, 4, …). `parent_memory_id` is the version you edited; `root_memory_id` stays the original id for the whole chain.
+- **The previous version is retired.** It stops being returned by recall, search, and `GET /v4/memories`, in both tiers, so an agent never sees two answers for the same fact.
+- **Edit the latest version.** Pass the newest `id` for the next edit. A retired version can't be read by the edit path, so editing it starts a separate chain at version 2 and the response reports `superseded: false`.
+
+### Reading history
+
+A retired version stays readable by its id through [`documents.get`](/sdk/documents) (`GET /v3/documents/{id}`), marked as superseded:
+
+```python
+old = tex.documents.get("3f0c…")
+old.status                       # "superseded"
+old.content                      # the pre-edit text
+old.metadata["supersededBy"]     # id of the version that replaced it
+old.metadata["supersededAt"]     # ISO 8601
+old.metadata["version"], old.metadata["rootMemoryId"]
+```
+
+To walk a chain, follow `supersededBy` forward from the root, or keep the ids `update_memory` returns.
+
+### When retiring the previous version fails
+
+The edit still returns `200`: the new version is already written, and failing the request would invite a retry that forks the chain into two new versions. The response says what happened instead. The SDK's `MemoryUpdateResponse` doesn't have attributes for these fields yet; read them from `raw`:
+
+| Field | Meaning |
+| --- | --- |
+| `raw["superseded"]` | `True` when the previous version was retired in both tiers |
+| `raw.get("durableTierError")` | Set when the previous version is still live in long-term memory |
+| `raw.get("activeTierError")` | Set when the active-tier write or retirement failed |
+
+```python
+v3 = tex.memories.update_memory(new_content="…", id=v2.id)
+if not v3.raw.get("superseded"):
+    # Don't retry the edit. Remove the old version explicitly instead.
+    tex.memories.forget(id=v2.id, reason="superseded")
 ```
 
 ## `memories.forget`
@@ -69,11 +108,16 @@ tex.memories.forget(
 ) -> MemoryForgetResponse   # id, forgotten
 ```
 
-Soft-deletes a memory by `id` or exact `content`. `404` if not found.
+Deletes one memory by `id` or exact `content`. `404` if not found.
 
 ```python
-tex.memories.forget(id="3f0c…", reason="superseded")
+tex.memories.forget(id="3f0c…", reason="user asked to forget")
 ```
+
+- The memory stops being returned by active recall, deep recall, search, and `GET /v4/memories` immediately, and its vectors are withdrawn.
+- It's a soft delete: storage is reclaimed later. Deleted facts don't come back — if the same information is added again, it's stored as a new memory.
+- `forget` acts on the memory as the calling user; it works from a per-user client. To delete another user's memory with a receipt, or a whole scope or user, use [`tex.deletions`](/sdk/deletions).
+- Matching by `content` needs the exact text.
 
 ## `container_tag`
 

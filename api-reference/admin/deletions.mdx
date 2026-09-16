@@ -1,0 +1,79 @@
+---
+title: "Deletions (platform)"
+description: "Delete any org's data, purge, and run the retention purge. Tex operators only."
+---
+
+<Warning>
+  These are **platform-admin** endpoints for Tex operators. A customer key — including an org owner key — gets `403`. To delete your own org's data, use [`/me/deletions`](/api-reference/account/deletions) or [`tex.deletions`](/sdk/deletions).
+</Warning>
+
+The token must be a platform-admin token, not minted for a specific user. SDK: `tex.admin.deletions.*`.
+
+## `POST /admin/deletions`
+
+Same body as [`POST /me/deletions`](/api-reference/account/deletions), plus:
+
+<ParamField body="org_id" type="string" required>
+  The org whose data is deleted, 1–256 chars.
+</ParamField>
+
+<ParamField body="mode" type="string" default="soft">
+  `soft` or `purge`. `purge` hard-deletes where the store supports it; the receipt then has `purge_after: null` and lists `helixdb_hard_delete` under `not_covered`, because the graph store only tombstones and reclaims space at compaction.
+</ParamField>
+
+An `org:` scope target is allowed here. The response is the same receipt, with `requested_via: "platform_admin"`.
+
+```json
+{
+  "org_id": "acme",
+  "target": {"kind": "user", "value": "bob"},
+  "mode": "purge",
+  "reason": "contract ended"
+}
+```
+
+A `user` purge also deletes the user's usage events and episode routing rows (`usage_events_deleted`, `episode_registry_deleted`).
+
+## `GET /admin/deletions/{request_id}`
+
+Any org's receipt. `404` if unknown.
+
+## `POST /admin/deletions/run-purges`
+
+```http
+POST /admin/deletions/run-purges?limit=50
+Authorization: Bearer <platform_admin_token>
+```
+
+Hard-deletes every soft deletion whose `purge_after` has passed, oldest first, up to `limit` (default `50`). Each one is replayed in `purge` mode; the original receipt gains a `purge` object. There is no built-in schedule — call this from a cron.
+
+```json
+{
+  "purged": 1,
+  "receipts": [
+    {"request_id": "…", "mode": "purge", "status": "completed", "purge_of_request_id": "3b9d6c1e-…", "…": "…"}
+  ]
+}
+```
+
+## SDK
+
+```python
+op = Tex(api_key=PLATFORM_ADMIN_KEY, base_url="https://api.getmetacognition.com")
+
+op.admin.deletions.delete_user("bob", org_id="acme", mode="purge")
+op.admin.deletions.delete_scope("org:acme", org_id="acme")
+op.admin.deletions.get(request_id)
+result = op.admin.deletions.run_purges(limit=50)     # PurgeRunResult(purged, receipts)
+```
+
+Every method takes `org_id=` (required), `mode="soft" | "purge"`, `reason=`, and `idempotency_key=`; `delete_memory` and `create` also take `owner_user_id=`. `run_purges` raises `ValueError` for a `limit` that isn't a positive `int`.
+
+## Errors
+
+| Status | When |
+| --- | --- |
+| `401` | Missing or invalid token |
+| `403` | Not a platform admin (including org owner keys and per-user tokens) |
+| `404` | Unknown receipt id |
+| `422` | Unknown `kind` or `mode`, malformed scope id, missing `org_id` |

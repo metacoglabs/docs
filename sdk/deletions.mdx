@@ -1,0 +1,251 @@
+---
+title: "Deletions"
+description: "Delete a memory, a scope, or a user across every tier, and read the receipt."
+---
+
+`tex.deletions` (SDK 1.3.0+) deletes your org's data in one request and returns a **receipt** that says what each store did. Calls `/me/deletions`.
+
+```python
+from tex import Tex
+
+admin = Tex(api_key=OWNER_KEY, base_url="https://api.getmetacognition.com")   # no user_id=
+
+receipt = admin.deletions.delete_user_scope("alice", reason="GDPR erasure request")
+print(receipt.status, receipt.purge_after)
+print(receipt.tiers.helixdb.deleted, receipt.tiers.active_memory.fragments_deleted)
+for gap in receipt.not_covered:
+    print("not covered:", gap.tier, gap.reason)
+```
+
+## Who can delete
+
+Deletion needs an **org admin key** — an API key with the `admin` or `*` scope — on a client built **without** `user_id=`. A per-user token inherits the key's roles but is always refused with `403`, so `Tex(api_key=OWNER_KEY, user_id="alice")` can't delete anything. The org is always the key's own org.
+
+<Warning>
+  Keep the org admin key on a server you control. Never use a token-broker key (`["impersonate_user"]`) or a device token for deletion — both get `403`.
+</Warning>
+
+## What a deletion does
+
+- **Hidden immediately.** Deleted content stops being returned by active recall, deep recall, search, and `GET /memories` as soon as the call returns. Its vectors are withdrawn too.
+- **Soft first.** Every deletion from `tex.deletions` is a soft delete: content is hidden from every read now, and storage is reclaimed later. The receipt's `purge_after` is when the retention window (7 days by default) ends.
+- **Purge is a platform operation.** The hard delete of our records and active-tier data runs after the retention window and is run by Tex, not by an org key. The long-term graph store keeps tombstoned records until its own compaction.
+- **Deleted facts stay deleted.** If new information about a deleted subject arrives later, it's stored fresh. The deleted facts don't come back.
+
+<Note>
+  **Not covered yet:** records held by the document ingestion pipeline and the raw files you uploaded. Every receipt lists them under `not_covered` (`ingestion_pipeline`, `object_storage_s3`).
+</Note>
+
+## Targets
+
+| Method | Deletes |
+| --- | --- |
+| `delete_memory(memory_id, *, owner_user_id=None, ...)` | One memory by id |
+| `delete_user_scope(user_id, ...)` | Everything in one user's personal `user:<user_id>` scope |
+| `delete_scope(scope, ...)` | Everything written to one `team:` or `project:` scope (or a `user:` scope) |
+| `delete_user(user_id, ...)` | A user inside your org: their personal-scope data, their scope memberships, and their active-memory data |
+| `create(*, kind, value, owner_user_id=None, ...)` | General form; `kind` is `"memory"`, `"user_scope"`, `"scope"`, or `"user"` |
+| `get(request_id)` | Re-read a receipt your org created |
+
+Every method except `get` accepts the same keyword arguments and returns a `DeletionReceipt`:
+
+<ParamField path="reason" type="str | None">
+  Free text stored on the receipt, ≤ 2,000 chars. Useful for audit ("GDPR erasure request #412").
+</ParamField>
+
+<ParamField path="idempotency_key" type="str | None">
+  ≤ 256 chars. Sending the same key again returns the first receipt with `replayed=True` instead of running the deletion again. Use one per logical request so retries are safe.
+</ParamField>
+
+<ParamField path="mode" type="str" default="soft">
+  Only `"soft"` is accepted. `"purge"` raises `PurgeNotPermittedError` before any request; any other value raises `ValueError`.
+</ParamField>
+
+### `delete_memory`
+
+```python
+tex.deletions.delete_memory(
+    memory_id: str,
+    *,
+    owner_user_id: str | None = None,
+    reason: str | None = None,
+    idempotency_key: str | None = None,
+    mode: str = "soft",
+) -> DeletionReceipt
+```
+
+`memory_id` is the id `memories.add` returned. Only the owner can delete a memory, so pass `owner_user_id` — the user the memory was written for. The server doesn't fall back to your key's identity; without the right owner, nothing is deleted and the receipt is `partial` (`tiers.helixdb.deleted == 0`).
+
+```python
+resp = admin.memories.add([{"content": "Alice's home office is in Leeds"}], container_tag="alice")
+mem_id = resp.memories[0].id
+
+receipt = admin.deletions.delete_memory(mem_id, owner_user_id="alice", reason="user request")
+assert receipt.completed
+```
+
+<Tip>
+  From the user's own client, [`memories.forget(id=...)`](/sdk/memories) does the same for a single memory without an admin key. Use `delete_memory` when you need a receipt, or when deleting on a user's behalf.
+</Tip>
+
+For a single memory, `tiers.active_memory.status` is `"skipped"` — the counts are reported for scope and user targets only.
+
+### `delete_user_scope`
+
+```python
+tex.deletions.delete_user_scope(user_id: str, *, reason=None, idempotency_key=None, mode="soft") -> DeletionReceipt
+```
+
+Deletes the user's personal memory. The user can keep using Tex, and what they wrote into shared `team:` / `project:` scopes stays. Use `delete_user` for full removal. A `user_id` your org has no record of returns `404` (`NotFoundError`).
+
+### `delete_scope`
+
+```python
+tex.deletions.delete_scope(scope: str, *, reason=None, idempotency_key=None, mode="soft") -> DeletionReceipt
+```
+
+Deletes everything written to `scope` by its members, and removes every membership of that scope. Memory that carries no scope is left alone and counted in `tiers.helixdb.skipped_unscoped`, so a shared-scope deletion never removes someone's personal data.
+
+- A malformed scope id raises `InvalidScopeError` before any request.
+- An `org:` scope is your whole org, including every member's shared memory. The server refuses it with `403`; contact support.
+- A scope deletion also lists `episode_registry` under `not_covered`: routing rows are per user, not per scope, so members' rows stay in place.
+
+```python
+receipt = admin.deletions.delete_scope("project:budget-cycle-2026", reason="project closed")
+```
+
+### `delete_user`
+
+```python
+tex.deletions.delete_user(user_id: str, *, reason=None, idempotency_key=None, mode="soft") -> DeletionReceipt
+```
+
+Removes a user from your org: their personal-scope data, all their scope memberships, and their active-memory data in every scope. Long-term memory they wrote into shared `team:` / `project:` scopes stays with those scopes; delete the scope if it must go too. Usage and billing events are kept (`tiers.auth_db.usage_events_retained`), as are the user's episode routing rows until purge (`episode_registry_retained`). A `user_id` your org has no record of returns `404`.
+
+<Note>
+  Deleting a user doesn't stop them from signing in. Stop minting tokens for them in your token broker too — see [Per-user clients](/sdk/per-user-clients).
+</Note>
+
+### `create`
+
+```python
+tex.deletions.create(*, kind: str, value: str, owner_user_id=None, reason=None,
+                     idempotency_key=None, mode="soft") -> DeletionReceipt
+```
+
+Use it when the target kind is data. An unknown `kind` raises `ValueError` before any request.
+
+### `get`
+
+```python
+tex.deletions.get(request_id: str) -> DeletionReceipt
+```
+
+Fetches a receipt your org created. Another org's id returns `404`.
+
+## Reading a receipt
+
+```python
+@dataclass(frozen=True)
+class DeletionReceipt:
+    request_id: str
+    org_id: str
+    target: DeletionTargetInfo          # kind, value
+    mode: str                           # "soft"
+    status: str                         # "completed" | "partial"
+    requested_by: str | None
+    requested_via: str | None           # "org_admin"
+    reason: str | None
+    created_at: str | None
+    completed_at: str | None
+    purge_after: str | None             # ISO 8601; end of the retention window
+    replayed: bool                      # True when returned for a repeated idempotency_key
+    tiers: DeletionTiers                # helixdb, active_memory, auth_db
+    not_covered: list[NotCoveredTier]   # tier, reason
+    raw: dict
+
+    completed: bool                     # property: status == "completed"
+    partial: bool                       # property: status == "partial"
+```
+
+| Tier | Attributes |
+| --- | --- |
+| `tiers.helixdb` (long-term memory) | `status`, `deleted`, `refused`, `skipped_unscoped`, `errors` |
+| `tiers.active_memory` | `status`, `fragments_deleted`, `kv_keys_deleted`, `episodes_tombstoned`, `episodes_deleted`, `errors` |
+| `tiers.auth_db` (grants, routing, billing) | `status`, `scope_memberships_deleted`, `episode_registry_deleted`, `episode_registry_retained`, `usage_events_deleted`, `usage_events_retained`, `errors` |
+
+A tier's `status` is `ok`, `partial`, `error`, or `skipped`.
+
+### `completed` vs `partial`
+
+`status` is `"completed"` when every tier did everything it was asked. It is `"partial"` when:
+
+- **`refused > 0`** — the long-term store wouldn't let the deletion remove some items. Only an item's owner can delete it, so data in a shared scope that belongs to another user can be counted here. Compare `refused` with `deleted` to see how much was left.
+- **`errors` is non-empty** on any tier — a store failed or was unreachable. Each entry says which item or call failed.
+- **A single-memory deletion removed nothing** — wrong id, wrong `owner_user_id`, or already deleted.
+
+```python
+receipt = admin.deletions.delete_scope("team:emea-travel")
+if receipt.partial:
+    h = receipt.tiers.helixdb
+    print("refused:", h.refused, "errors:", h.errors)
+    print("active tier errors:", receipt.tiers.active_memory.errors)
+```
+
+What was deleted stays deleted. A `partial` deletion is safe to run again with a **new** `idempotency_key` after fixing the cause (reusing the old key returns the old receipt).
+
+<Accordion title="Example receipt">
+```json
+{
+  "request_id": "3b9d6c1e-5f2a-4c8e-9a71-0d2e4b6f8a10",
+  "org_id": "acme",
+  "target": {"kind": "user_scope", "value": "alice"},
+  "mode": "soft",
+  "status": "completed",
+  "requested_by": "apikey_1a2b3c4d",
+  "requested_via": "org_admin",
+  "reason": "GDPR erasure request",
+  "created_at": "2026-09-17T10:00:00.120000+00:00",
+  "completed_at": "2026-09-17T10:00:02.480000+00:00",
+  "purge_after": "2026-09-24T10:00:02.480000+00:00",
+  "replayed": false,
+  "tiers": {
+    "helixdb": {"status": "ok", "errors": [], "deleted": 42, "refused": 0, "skipped_unscoped": 0},
+    "active_memory": {"status": "ok", "errors": [], "fragments_deleted": 17, "kv_keys_deleted": 17,
+                      "episodes_tombstoned": 3, "episodes_deleted": 0},
+    "auth_db": {"status": "ok", "errors": [], "scope_memberships_deleted": 0,
+                "episode_registry_deleted": 0, "episode_registry_retained": 0,
+                "usage_events_deleted": 0, "usage_events_retained": 0}
+  },
+  "not_covered": [
+    {"tier": "ingestion_pipeline", "reason": "documents and jobs held by the ingestion service are not touched; ingestion purge is a deliberate follow-up phase"},
+    {"tier": "object_storage_s3", "reason": "raw uploaded objects in S3 are not deleted; the same follow-up phase owns them"}
+  ]
+}
+```
+</Accordion>
+
+## Limitations
+
+- **Single documents and single conversations.** Deleting one document added with `documents.add`, or one conversation on its own, isn't supported yet — `documents.delete` returns `409` for pipeline documents. To remove that content today, delete the scope or user it lives in. Per-document deletion is planned.
+- **Ingestion records and raw uploads** are not deleted yet (`not_covered`).
+- **Soft delete.** Content is hidden at once; storage is reclaimed after the retention window, and tombstoned graph records remain until compaction.
+
+## Errors
+
+| Exception | When |
+| --- | --- |
+| `PurgeNotPermittedError` (`ValueError`) | `mode="purge"` — raised before any request |
+| `InvalidScopeError` (`ValueError`) | `delete_scope` with a malformed scope id — raised before any request |
+| `ValueError` | Empty `user_id` / `memory_id` / `request_id`, unknown `kind` or `mode` — raised before any request |
+| `PermissionDeniedError` (403) | Not an org admin key, a per-user client, or an `org:` scope target. The SDK appends what the call needs to the message |
+| `NotFoundError` (404) | Unknown user in this org, or a receipt id that isn't yours |
+| `UnprocessableEntityError` (422) | The server rejected the target (e.g. a malformed value sent over raw HTTP) |
+
+## Platform operators
+
+`tex.admin.deletions.*` wraps [`/admin/deletions`](/api-reference/admin/deletions) with the same methods plus a required `org_id=`, `mode="purge"`, and `run_purges(limit=50)`. These routes are for Tex operators; a customer key gets `403`.
+
+<Card title="API reference: /me/deletions" icon="trash" href="/api-reference/account/deletions" horizontal>
+  Raw HTTP request and response shapes.
+</Card>

@@ -13,7 +13,7 @@ description: "Common symptoms, root causes, and fixes."
 | `AuthenticationError` on first call | Wrong or revoked key, or wrong `base_url` | Check the key and `TEX_BASE_URL` |
 | `PermissionDeniedError` mentioning `impersonation-capable scope` | `user_id` with a key lacking `impersonate_user` | Use a key with an impersonation scope |
 | `PermissionDeniedError` mentioning `/auth/login` | No API key or token — the SDK tried the dev-only login | Pass `api_key` (with `user_id`) or `access_token` |
-| `403` `scope_not_visible` | Writing into, or narrowing a read to, a scope you aren't a member of | Grant the membership; allow up to 1 hour; retry |
+| `403` `scope_not_visible` | Writing into, or narrowing a read to, a scope you aren't a member of | Grant the membership with [`tex.scopes.grant`](/sdk/scopes#managing-memberships); allow up to 1 hour; retry |
 | `403` `container_tag_not_permitted` | Per-user client passed another user's `container_tag` | Omit `container_tag` or use the user's own id |
 | `InvalidScopeError` | Scope not shaped `<kind>:<value>` with kind `user` / `team` / `org` / `project` | Fix the scope string |
 | Users see each other's memory | One key-only client shared across end users | Use [per-user clients](/sdk/per-user-clients) — `session_id` doesn't isolate |
@@ -21,7 +21,13 @@ description: "Common symptoms, root causes, and fixes."
 | `InvalidInactivityTimeoutError` / `422` on `inactivity_timeout_seconds` | Window outside 300–86,400 seconds, or not an integer | Use 5 minutes to 24 hours, in whole seconds |
 | `recall.confidence` always low | `q` doesn't match stored text well | Rephrase; try `mode="deep"`; raise `top_k` |
 | `documents.get` returns `404` right after `add` | Wrong id, or document not visible to this user (different user or scope) | Use the returned `doc-…` id with a client that can see its scope |
-| `documents.update` / `delete` raises `ConflictError` | Pipeline documents can't be modified by id | Add a new document |
+| `documents.update` / `delete` raises `ConflictError` (`409`) | Documents added through the ingestion pipeline (`doc-…`) can't be changed or deleted by id; deleting a single document isn't supported yet | To replace content, add a new document. To remove it, delete the scope or user it was written to with [`tex.deletions`](/sdk/deletions) |
+| `PurgeNotPermittedError` | `mode="purge"` on `tex.deletions` — purge is run by Tex after the retention window | Use the default `mode="soft"`; content is hidden immediately |
+| `ScopeNotDelegableError` | `tex.scopes.grant` with a `user:` or `org:` scope | Grant a `team:` or `project:` scope. Personal and org scopes are already implicit for their users |
+| `403` on `/me/deletions`, `/me/scope-memberships`, `/me/settings`, or `/me/api-keys` | Per-user token (client built with `user_id=`), broker key, device token, or a key without `admin` / `*` | Use a client built from the org admin key **without** `user_id=` — see [Org admin routes](/authentication#org-admin-routes) |
+| A grant or revocation hasn't taken effect | The user's current token still carries their old scopes | Allow up to 1 hour, then retry |
+| Deletion receipt `status` is `partial` | An item only its owner can delete was refused (`tiers.helixdb.refused`), a store reported `errors`, or `delete_memory` removed nothing (wrong id or `owner_user_id`) | Read the per-tier `refused` and `errors`; fix the cause and run again with a new `idempotency_key`. See [Reading a receipt](/sdk/deletions#reading-a-receipt) |
+| `NotFoundError` on `tex.deletions.delete_user` / `delete_user_scope` | Your org has no record of that user id | Check the id — it must be the `user_id` you mint tokens for |
 | `documents.list` doesn't show added documents | `list` returns graph nodes, not pipeline documents | Track `doc-…` ids and use `documents.get` |
 | `RateLimitError` mid-day | Daily token quota reached | Wait for 00:00 UTC; reduce `top_k`; pre-filter writes |
 | Slow `recall` | `mode="deep"` or large `top_k` | Use `mode="active"` for interactive calls |

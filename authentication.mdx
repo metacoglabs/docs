@@ -120,6 +120,24 @@ The SDK reads `TEX_API_KEY` and `TEX_BASE_URL` from the environment when `api_ke
   **Never ship an API key in a device, desktop, or browser app.** A key with an impersonation scope can mint a token for any user in your org. Mint per-user tokens on your server and hand only the access token to the client.
 </Warning>
 
+## Org admin routes
+
+Some routes manage the org rather than one user's memory. They need an **org admin token**: exchanged **without** `user_id` from a key with `admin` or `*` (the owner key from signup has `*`). A per-user token inherits the key's roles but is always refused with `403`, so a user can't act as an admin through their own token.
+
+| Route | SDK | Purpose |
+| --- | --- | --- |
+| `GET` / `POST /me/api-keys` | — | [List and mint keys](/api-reference/account/api-keys) |
+| `GET` / `PATCH /me/settings` | — | [Org settings](/api-reference/account/settings) |
+| `POST` / `GET` / `DELETE /me/scope-memberships` | `tex.scopes.*` | [Grant and revoke team/project access](/api-reference/account/scope-memberships) |
+| `POST /me/deletions`, `GET /me/deletions/{id}` | `tex.deletions.*` | [Delete data and read receipts](/api-reference/account/deletions) |
+
+```python
+admin = Tex(api_key=os.environ["TEX_OWNER_KEY"], base_url="https://api.getmetacognition.com")  # no user_id
+admin.scopes.grant("alice", "team:fpa-pod")
+```
+
+Keep this key on a server you control, separate from your token-broker key (`["impersonate_user"]`), which can't call these routes. `/admin/*` routes are for Tex operators and refuse customer keys.
+
 ## Token lifetimes, refresh, and revocation
 
 | Token | Lifetime (production) |

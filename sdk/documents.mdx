@@ -104,10 +104,31 @@ tex.documents.delete(id) -> None
 ```
 
 <Warning>
-  For pipeline documents (`doc-…` ids), `update` and `delete` return `409` (`ConflictError`): the memories extracted from a document are not attributable to its id. Add a new document instead, or update/delete individual memories with [`memories`](/sdk/memories).
+  For pipeline documents (`doc-…` ids), `update` and `delete` return `409` (`ConflictError`). Memories extracted from a document are merged across documents and don't carry the document's id, so they can't be changed or removed by that id.
 </Warning>
 
-Other ids are treated as graph node ids.
+```json 409 body
+{
+  "error": "Conflict",
+  "details": "This document was added through the ingestion pipeline; its extracted memories are not attributable to the document id, so it cannot be updated or deleted by id. Add a new document, or update/delete the individual memories."
+}
+```
+
+**Deleting a single document isn't supported yet.** Per-document deletion is planned. To remove a document's content today, delete the scope or user it was written to with [`tex.deletions`](/sdk/deletions):
+
+```python
+from tex import ConflictError
+
+try:
+    tex.documents.delete(doc_id)
+except ConflictError:
+    # Content lives in the scope it was added to, e.g. project:budget-cycle-2026
+    admin.deletions.delete_scope("project:budget-cycle-2026", reason="remove closed project")
+```
+
+Plan for this when you add documents: put content you may need to remove together into its own `project:` scope. Deletion doesn't yet remove the ingestion pipeline's own record of the document or the uploaded file (see `not_covered` on the receipt). To replace a document's content, add a new document.
+
+Other ids are treated as graph node ids: `update` and `delete` act on that node, and `delete` returns `404` if it doesn't exist.
 
 ## `documents.list`
 

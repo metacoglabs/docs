@@ -34,7 +34,7 @@ A user's **visible scopes** are:
 2. `org:<org_id>` — implicit
 3. Every scope granted to them by a membership
 
-Memberships are managed with [`/admin/scope-memberships`](/api-reference/admin/scope-memberships). Changes take effect on the user's next token refresh — allow up to 1 hour.
+Your org admin key manages memberships with [`tex.scopes`](/sdk/scopes#managing-memberships) or [`/me/scope-memberships`](/api-reference/account/scope-memberships). Only `team:` and `project:` scopes can be granted. Changes take effect on the user's next token refresh — allow up to 1 hour.
 
 ## Writes
 

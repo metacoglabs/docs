@@ -1,6 +1,6 @@
 ---
 title: "Scopes"
-description: "Hierarchical write scopes, default_scope, and scoped recall."
+description: "Hierarchical write scopes, default_scope, scoped recall, and managing memberships."
 ---
 
 A scope id is `"<kind>:<value>"` with kind `user`, `team`, `org`, or `project`. See [Users, teams, and scopes](/concepts/scopes) for the model.
@@ -79,17 +79,71 @@ except PermissionDeniedError as e:
 
 On a write, the server rejects the request before doing any work. On a narrowed `recall`, the same code is returned for a scope outside your read-set.
 
-## Memberships
+## Managing memberships
 
-A user sees `user:<user_id>`, `org:<org_id>`, plus every scope granted by a membership. Grants are managed with the admin API:
+A user sees `user:<user_id>`, `org:<org_id>`, plus every `team:` / `project:` scope granted to them. Since SDK 1.3.0, your org admin key manages those grants directly with `tex.scopes` (calls [`/me/scope-memberships`](/api-reference/account/scope-memberships)) — no request to Tex needed.
 
-```bash
-curl -X POST https://api.getmetacognition.com/admin/scope-memberships \
-  -H "Authorization: Bearer $ADMIN_TOKEN" -H 'content-type: application/json' \
-  -d '{"org_id": "acme", "user_id": "alice", "scope_id": "team:fpa-pod", "role": "member"}'
+```python
+from tex import Tex
+
+admin = Tex(api_key=OWNER_KEY, base_url="https://api.getmetacognition.com")   # no user_id=
+
+grant = admin.scopes.grant("alice", "team:fpa-pod")          # role="member" by default
+print(grant.created, grant.membership.role, grant.note)
+
+for m in admin.scopes.list(scope="team:fpa-pod").memberships:
+    print(m.user_id, m.role)
+
+admin.scopes.revoke("alice", "team:fpa-pod")
 ```
 
-Changes take effect on the user's next token refresh — allow up to 1 hour. See [Scope memberships](/api-reference/admin/scope-memberships).
+<Warning>
+  `tex.scopes` needs an **org admin key** (`admin` or `*`) on a client built **without** `user_id=`. A per-user client — or a token-broker key, or a device token — gets `PermissionDeniedError` (`403`), so a user can never grant themselves a scope. The org is always the key's own org.
+</Warning>
+
+### `scopes.grant`
+
+```python
+tex.scopes.grant(user_id: str, scope: str, *, role: str = "member") -> ScopeGrantResult
+```
+
+- Only `team:` and `project:` scopes. A `user:` scope (personal to its user) or an `org:` scope (already implicit for every member) raises `ScopeNotDelegableError` before any request.
+- A malformed scope raises `InvalidScopeError`; an empty `user_id` or `role` raises `ValueError`.
+- Idempotent: granting an existing membership returns `created=False`; a different `role` updates the stored role.
+- A user who hasn't signed in yet can be granted a scope. It applies from their first token.
+
+### `scopes.list`
+
+```python
+tex.scopes.list(*, user_id: str | None = None, scope: str | None = None) -> ScopeMembershipList
+```
+
+Your org's grants, optionally filtered. Implicit `user:` / `org:` scopes are never listed.
+
+### `scopes.revoke`
+
+```python
+tex.scopes.revoke(user_id: str, scope: str) -> ScopeRevokeResult
+```
+
+Raises `NotFoundError` if the grant doesn't exist. Revoking removes access, not data: memory already written into the scope stays for the remaining members. To remove the data, use [`tex.deletions`](/sdk/deletions).
+
+### Return types
+
+```python
+ScopeGrantResult(membership: ScopeMembership, created: bool, note: str, raw)
+ScopeMembershipList(memberships: list[ScopeMembership], total: int, raw)
+ScopeMembership(id: int | None, org_id: str, user_id: str, scope_id: str, role: str, created_at: str | None, raw)
+ScopeRevokeResult(removed: bool, note: str, raw)     # the server answers 204; removed is always True
+```
+
+### Propagation
+
+A grant or revocation reaches the user on their **next token refresh — allow up to 1 hour**. Tokens already issued keep their old scopes until then: a new grant isn't visible immediately, and a revoked scope stays readable until the token refreshes. `result.note` repeats this on every change.
+
+<Note>
+  Tex operators manage grants across orgs with `tex.admin.scopes.*` ([platform endpoints](/api-reference/admin/scope-memberships)). A customer key gets `403` there.
+</Note>
 
 <Card title="Next: Documents" icon="file-lines" href="/sdk/documents" horizontal>
   Add documents into a scope and track processing.

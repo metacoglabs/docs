@@ -76,7 +76,7 @@ tex_for_user("bob").recall("refund policy?", session_id="s-9")                  
 tex_for_user("bob").recall("refund policy?", session_id="s-9", scope="team:support")  # narrow to that scope
 ```
 
-A write or narrowed read into a scope the user isn't a member of returns `403 scope_not_visible`. Memberships are managed with `POST /admin/scope-memberships`. See [Scopes](/sdk/scopes).
+A write or narrowed read into a scope the user isn't a member of returns `403 scope_not_visible`. Grant memberships from your org admin key with `tex.scopes.grant(user_id, "team:support")` (`POST /me/scope-memberships`). See [Managing memberships](/sdk/scopes#managing-memberships).
 
 ## Pattern B — one Tex org per end customer
 

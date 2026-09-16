@@ -9,10 +9,12 @@ All Tex exceptions inherit from `tex.TexError`.
 | --- | --- | --- | --- |
 | `InvalidScopeError` | — | `TexError`, `ValueError` | Malformed scope id, raised before any request |
 | `InvalidInactivityTimeoutError` | — | `TexError`, `ValueError` | SDK 1.2.1+: inactivity window not an `int` in 300–86,400, raised before any request |
+| `ScopeNotDelegableError` | — | `TexError`, `ValueError` | SDK 1.3.0+: `tex.scopes.grant` with a `user:` or `org:` scope, raised before any request |
+| `PurgeNotPermittedError` | — | `TexError`, `ValueError` | SDK 1.3.0+: `mode="purge"` on `tex.deletions`, raised before any request |
 | `BadRequestError` | 400 | `APIStatusError` | Malformed payload on `/v3` / `/v4` routes |
 | `AuthenticationError` | 401 | `APIStatusError` | Bad key, expired or invalid token |
-| `PermissionDeniedError` | 403 | `APIStatusError` | Scope not visible, `containerTag` not permitted, key lacks impersonation scope, admin-only route |
-| `NotFoundError` | 404 | `APIStatusError` | Unknown resource, or a document you can't see |
+| `PermissionDeniedError` | 403 | `APIStatusError` | Scope not visible, `containerTag` not permitted, key lacks impersonation scope, org-admin or admin-only route |
+| `NotFoundError` | 404 | `APIStatusError` | Unknown resource, a document you can't see, revoking a grant that doesn't exist, deleting an unknown user |
 | `ConflictError` | 409 | `APIStatusError` | Update/delete of a pipeline document; duplicate `org_id` on signup |
 | `UnprocessableEntityError` | 422 | `APIStatusError` | Validation failure on Tex-native routes (e.g. missing turn `timestamp`) |
 | `RateLimitError` | 429 | `APIStatusError` | Daily token quota exceeded |
@@ -35,7 +37,7 @@ e.response_text   # raw response body, capped at 2,000 chars
 ```
 
 <Warning>
-  `APITimeoutError` and `APIConnectionError` are **network errors** — no response, so no `status_code`, `request_id`, `details`, or `response_text`. `InvalidScopeError` and `InvalidInactivityTimeoutError` are raised client-side and have only a message.
+  `APITimeoutError` and `APIConnectionError` are **network errors** — no response, so no `status_code`, `request_id`, `details`, or `response_text`. `InvalidScopeError`, `InvalidInactivityTimeoutError`, `ScopeNotDelegableError`, and `PurgeNotPermittedError` are raised client-side and have only a message.
 </Warning>
 
 ## Reading the error code

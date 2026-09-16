@@ -48,7 +48,7 @@ Content-Type: application/json
   | --- | --- |
   | `user` | Nothing extra — memory, usage, and search calls as the key's own identity |
   | `impersonate_user` | Minting per-user tokens with `user_id` on token exchange |
-  | `*` | Owner key: impersonation and key management |
+  | `*` | Owner key: impersonation, key management, org settings, [scope memberships](/api-reference/account/scope-memberships), and [deletions](/api-reference/account/deletions) |
 
   Memory routes don't require any scope. Per-user tokens inherit the key's scopes as roles — a token-broker key should have exactly `["impersonate_user"]`. Other role names are reserved for Tex operators; don't request them.
 </ParamField>
