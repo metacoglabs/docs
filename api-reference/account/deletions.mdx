@@ -31,7 +31,7 @@ Content-Type: application/json
     <ParamField body="kind" type="string" required>
       | `kind` | `value` | Deletes |
       | --- | --- | --- |
-      | `memory` | A memory id | One memory |
+      | `memory` | A memory id | One memory written with `/v4/memories` (`memories.add`), in long-term and active memory. Requires `owner_user_id` |
       | `user_scope` | A user id | Everything in that user's `user:<value>` scope |
       | `scope` | A scope id, e.g. `team:eng` | Everything written to that scope by its members, and every membership of it. `org:` scopes are refused |
       | `user` | A user id | The user's personal-scope data, their scope memberships, and their active-memory data |
@@ -40,7 +40,7 @@ Content-Type: application/json
       1–512 chars. For `kind: "scope"`, a canonical `"<kind>:<value>"` id.
     </ParamField>
     <ParamField body="owner_user_id" type="string">
-      `kind: "memory"` only: the user who owns the memory. Only the owner can delete it, and there is no default — without it nothing is deleted and the receipt is `partial`.
+      **Required for `kind: "memory"`**: the user whose memory this is. Only the owner can delete it, and there is no default — a missing or empty value returns `422`. Echoed back in the receipt's `target`.
     </ParamField>
   </Expandable>
 </ParamField>
@@ -66,7 +66,7 @@ The receipt:
 </ResponseField>
 
 <ResponseField name="status" type="string">
-  `completed` when every tier did everything it was asked; `partial` when an item was refused, a tier reported errors, or a single-memory deletion removed nothing.
+  `completed` when every tier did everything it was asked; `partial` when an item was refused or a tier reported errors. A `memory` deletion is `completed` only when the long-term delete and the active-tier tombstone both succeeded.
 </ResponseField>
 
 <ResponseField name="purge_after" type="string | null">
@@ -82,10 +82,16 @@ The receipt:
 
   <Expandable title="tiers">
     <ResponseField name="helixdb" type="object">
-      Long-term memory: `deleted`, `refused` (items only their owner can delete), `skipped_unscoped` (items with no scope, left alone by a shared-scope deletion).
+      Long-term memory: `deleted`, `refused` (items only their owner can delete), `skipped_unscoped` (items with no scope, left alone by a shared-scope deletion). For `kind: "memory"`, `status` is `not_found` when nothing was deleted.
     </ResponseField>
     <ResponseField name="active_memory" type="object">
-      Active memory: `fragments_deleted`, `kv_keys_deleted`, `episodes_tombstoned`, `episodes_deleted`. `skipped` for `kind: "memory"`.
+      Active memory: `fragments_deleted`, `kv_keys_deleted`, `episodes_tombstoned`, `episodes_deleted`.
+
+      For `kind: "memory"` the shape is `{"status", "tombstones_written", "errors", "note"?}`, with `status`:
+      - `ok` — hidden from active recall (`tombstones_written: 1`)
+      - `not_located` — the memory couldn't be read for this owner, or it isn't a `/v4/memories` memory (conversation turns from `/ingestion/memory` aren't addressable one by one — delete their `user_scope` or `scope`)
+      - `skipped` — the long-term delete didn't succeed, so the active copy was left alone
+      - `error` — the active tier failed; see `errors`
     </ResponseField>
     <ResponseField name="auth_db" type="object">
       Access grants, routing, and billing rows: `scope_memberships_deleted`, `episode_registry_deleted`, `episode_registry_retained`, `usage_events_deleted`, `usage_events_retained`. Usage events always survive a soft deletion.
@@ -125,6 +131,21 @@ Also returned: `org_id`, `target` (`kind`, `value`), `mode`, `requested_by`, `re
 }
 ```
 
+A `memory` target's receipt:
+
+```json
+{
+  "target": {"kind": "memory", "value": "<memory id>", "owner_user_id": "alice"},
+  "status": "completed",
+  "tiers": {
+    "helixdb": {"status": "ok", "errors": [], "deleted": 1, "refused": 0, "skipped_unscoped": 0},
+    "active_memory": {"status": "ok", "errors": [], "tombstones_written": 1},
+    "auth_db": {"status": "ok", "errors": [], "scope_memberships_deleted": 0, "episode_registry_deleted": 0, "episode_registry_retained": 0, "usage_events_deleted": 0, "usage_events_retained": 0}
+  },
+  "…": "…"
+}
+```
+
 A `user` target in soft mode also carries `tiers.auth_db.note`, explaining that usage events and routing rows are kept until purge.
 
 ## `GET /me/deletions/{request_id}`
@@ -146,6 +167,7 @@ Returns the stored receipt. A receipt from another org returns `404`. After the 
 | `403` | `Deleting an org-wide scope removes every member's shared memory; contact support — this is a platform operation.` | `kind: "scope"` with an `org:` value |
 | `404` | `No user '<id>' is known in this organization` | `user` / `user_scope` target your org has no record of |
 | `404` | `Deletion request not found` | `GET` of an unknown or another org's receipt |
+| `422` | `owner_user_id is required for kind=memory: the user whose memory this is` | `kind: "memory"` without `owner_user_id` |
 | `422` | | Unknown `kind`, empty `value`, malformed scope id, field too long |
 
 ## Not supported yet

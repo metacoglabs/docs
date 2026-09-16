@@ -67,7 +67,7 @@ op.admin.deletions.get(request_id)
 result = op.admin.deletions.run_purges(limit=50)     # PurgeRunResult(purged, receipts)
 ```
 
-Every method takes `org_id=` (required), `mode="soft" | "purge"`, `reason=`, and `idempotency_key=`; `delete_memory` and `create` also take `owner_user_id=`. `run_purges` raises `ValueError` for a `limit` that isn't a positive `int`.
+Every method takes `org_id=` (required), `mode="soft" | "purge"`, `reason=`, and `idempotency_key=`; `delete_memory` requires `owner_user_id=` (1.3.1+), and `create(kind="memory")` requires it too; the API returns `422` without it. `run_purges` raises `ValueError` for a `limit` that isn't a positive `int`.
 
 ## Errors
 
@@ -76,4 +76,4 @@ Every method takes `org_id=` (required), `mode="soft" | "purge"`, `reason=`, and
 | `401` | Missing or invalid token |
 | `403` | Not a platform admin (including org owner keys and per-user tokens) |
 | `404` | Unknown receipt id |
-| `422` | Unknown `kind` or `mode`, malformed scope id, missing `org_id` |
+| `422` | Unknown `kind` or `mode`, malformed scope id, missing `org_id`, `kind: "memory"` without `owner_user_id` |

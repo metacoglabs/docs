@@ -3,7 +3,7 @@ title: "Deletions"
 description: "Delete a memory, a scope, or a user across every tier, and read the receipt."
 ---
 
-`tex.deletions` (SDK 1.3.0+) deletes your org's data in one request and returns a **receipt** that says what each store did. Calls `/me/deletions`.
+`tex.deletions` (SDK 1.3.0+; use 1.3.1) deletes your org's data in one request and returns a **receipt** that says what each store did. Calls `/me/deletions`.
 
 ```python
 from tex import Tex
@@ -40,11 +40,11 @@ Deletion needs an **org admin key** — an API key with the `admin` or `*` scope
 
 | Method | Deletes |
 | --- | --- |
-| `delete_memory(memory_id, *, owner_user_id=None, ...)` | One memory by id |
+| `delete_memory(memory_id, *, owner_user_id, ...)` | One memory written with `memories.add` |
 | `delete_user_scope(user_id, ...)` | Everything in one user's personal `user:<user_id>` scope |
 | `delete_scope(scope, ...)` | Everything written to one `team:` or `project:` scope (or a `user:` scope) |
 | `delete_user(user_id, ...)` | A user inside your org: their personal-scope data, their scope memberships, and their active-memory data |
-| `create(*, kind, value, owner_user_id=None, ...)` | General form; `kind` is `"memory"`, `"user_scope"`, `"scope"`, or `"user"` |
+| `create(*, kind, value, owner_user_id=None, ...)` | General form; `kind` is `"memory"`, `"user_scope"`, `"scope"`, or `"user"`. `owner_user_id` is required for `"memory"` |
 | `get(request_id)` | Re-read a receipt your org created |
 
 Every method except `get` accepts the same keyword arguments and returns a `DeletionReceipt`:
@@ -67,14 +67,22 @@ Every method except `get` accepts the same keyword arguments and returns a `Dele
 tex.deletions.delete_memory(
     memory_id: str,
     *,
-    owner_user_id: str | None = None,
+    owner_user_id: str,              # required (1.3.1+)
     reason: str | None = None,
     idempotency_key: str | None = None,
     mode: str = "soft",
 ) -> DeletionReceipt
 ```
 
-`memory_id` is the id `memories.add` returned. Only the owner can delete a memory, so pass `owner_user_id` — the user the memory was written for. The server doesn't fall back to your key's identity; without the right owner, nothing is deleted and the receipt is `partial` (`tiers.helixdb.deleted == 0`).
+`memory_id` is the id `memories.add` returned. `owner_user_id` is **required**: the user the memory was written for (the `container_tag`, or the per-user client's `user_id`). Only the owner can delete a memory, and the server doesn't guess it.
+
+- Omitting `owner_user_id` raises `TypeError`; an empty value raises `ValueError` — both before any request. Over HTTP, a missing owner returns `422`.
+- The memory is removed from long-term memory **and** hidden from active recall, deep recall, and search immediately.
+- The receipt is `completed` only when both happened. A wrong id or wrong owner comes back `partial` with nothing deleted (`tiers.helixdb.deleted == 0`).
+
+<Warning>
+  SDK 1.3.0 made `owner_user_id` optional, and calls without it deleted nothing. Upgrade to 1.3.1.
+</Warning>
 
 ```python
 resp = admin.memories.add([{"content": "Alice's home office is in Leeds"}], container_tag="alice")
@@ -88,7 +96,20 @@ assert receipt.completed
   From the user's own client, [`memories.forget(id=...)`](/sdk/memories) does the same for a single memory without an admin key. Use `delete_memory` when you need a receipt, or when deleting on a user's behalf.
 </Tip>
 
-For a single memory, `tiers.active_memory.status` is `"skipped"` — the counts are reported for scope and user targets only.
+For a single memory, `tiers.active_memory` reports:
+
+| `status` | Meaning |
+| --- | --- |
+| `ok` | The memory is hidden from active recall (`raw["tombstones_written"] == 1`) |
+| `not_located` | The memory couldn't be read for this owner (missing, already deleted, or someone else's), or the id isn't a `memories.add` memory |
+| `skipped` | The long-term delete didn't succeed, so the active copy was left alone |
+| `error` | The active tier couldn't be reached; see `errors` |
+
+`tombstones_written` and any explanatory `note` are in `receipt.tiers.active_memory.raw`; the count attributes below (`fragments_deleted`, …) are `0` for a single memory. The receipt's `target.raw["owner_user_id"]` echoes the owner.
+
+<Note>
+  `delete_memory` is for memories written with `memories.add`. Conversation turns written with `conversations.remember` (`/ingestion/memory`) aren't addressable one by one: their active copy reports `not_located` and the receipt is `partial`. Delete those with `delete_user_scope` or `delete_scope` — deleting a single conversation isn't supported yet.
+</Note>
 
 ### `delete_user_scope`
 
@@ -96,7 +117,7 @@ For a single memory, `tiers.active_memory.status` is `"skipped"` — the counts 
 tex.deletions.delete_user_scope(user_id: str, *, reason=None, idempotency_key=None, mode="soft") -> DeletionReceipt
 ```
 
-Deletes the user's personal memory. The user can keep using Tex, and what they wrote into shared `team:` / `project:` scopes stays. Use `delete_user` for full removal. A `user_id` your org has no record of returns `404` (`NotFoundError`).
+Deletes the user's personal memory, in long-term and active memory. The user can keep using Tex, their scope memberships are left alone, and what they wrote into shared `team:` / `project:` scopes stays. Use `delete_user` for full removal, or [`tex.scopes.revoke`](/sdk/scopes#managing-memberships) to remove a grant. A `user_id` your org has no record of returns `404` (`NotFoundError`).
 
 ### `delete_scope`
 
@@ -120,7 +141,10 @@ receipt = admin.deletions.delete_scope("project:budget-cycle-2026", reason="proj
 tex.deletions.delete_user(user_id: str, *, reason=None, idempotency_key=None, mode="soft") -> DeletionReceipt
 ```
 
-Removes a user from your org: their personal-scope data, all their scope memberships, and their active-memory data in every scope. Long-term memory they wrote into shared `team:` / `project:` scopes stays with those scopes; delete the scope if it must go too. Usage and billing events are kept (`tiers.auth_db.usage_events_retained`), as are the user's episode routing rows until purge (`episode_registry_retained`). A `user_id` your org has no record of returns `404`.
+Removes a user from your org:
+
+- **Removed:** their long-term memory in their personal scope, their active-memory data in every scope, and all their scope memberships.
+- **Kept:** long-term memory they wrote into shared `team:` / `project:` scopes (use `delete_scope` if it must go), plus their usage/billing events and episode routing rows, which a soft deletion retains (`tiers.auth_db.usage_events_retained`, `episode_registry_retained`). A `user_id` your org has no record of returns `404`.
 
 <Note>
   Deleting a user doesn't stop them from signing in. Stop minting tokens for them in your token broker too — see [Per-user clients](/sdk/per-user-clients).
@@ -174,7 +198,7 @@ class DeletionReceipt:
 | `tiers.active_memory` | `status`, `fragments_deleted`, `kv_keys_deleted`, `episodes_tombstoned`, `episodes_deleted`, `errors` |
 | `tiers.auth_db` (grants, routing, billing) | `status`, `scope_memberships_deleted`, `episode_registry_deleted`, `episode_registry_retained`, `usage_events_deleted`, `usage_events_retained`, `errors` |
 
-A tier's `status` is `ok`, `partial`, `error`, or `skipped`.
+A tier's `status` is `ok`, `partial`, `error`, or `skipped`; for a single memory, `helixdb` can also be `not_found` and `active_memory` `not_located` (see `delete_memory` above).
 
 ### `completed` vs `partial`
 
@@ -182,7 +206,7 @@ A tier's `status` is `ok`, `partial`, `error`, or `skipped`.
 
 - **`refused > 0`** — the long-term store wouldn't let the deletion remove some items. Only an item's owner can delete it, so data in a shared scope that belongs to another user can be counted here. Compare `refused` with `deleted` to see how much was left.
 - **`errors` is non-empty** on any tier — a store failed or was unreachable. Each entry says which item or call failed.
-- **A single-memory deletion removed nothing** — wrong id, wrong `owner_user_id`, or already deleted.
+- **A single-memory deletion didn't finish in both tiers** — nothing deleted from long-term memory (wrong id, wrong `owner_user_id`, already deleted), or `active_memory.status` isn't `ok` (for example, a conversation turn rather than a `memories.add` memory).
 
 ```python
 receipt = admin.deletions.delete_scope("team:emea-travel")
@@ -237,10 +261,11 @@ What was deleted stays deleted. A `partial` deletion is safe to run again with a
 | --- | --- |
 | `PurgeNotPermittedError` (`ValueError`) | `mode="purge"` — raised before any request |
 | `InvalidScopeError` (`ValueError`) | `delete_scope` with a malformed scope id — raised before any request |
-| `ValueError` | Empty `user_id` / `memory_id` / `request_id`, unknown `kind` or `mode` — raised before any request |
+| `TypeError` | `delete_memory` without `owner_user_id` (1.3.1+) |
+| `ValueError` | Empty `user_id` / `memory_id` / `owner_user_id` / `request_id`, `create(kind="memory")` without an owner, unknown `kind` or `mode` — raised before any request |
 | `PermissionDeniedError` (403) | Not an org admin key, a per-user client, or an `org:` scope target. The SDK appends what the call needs to the message |
 | `NotFoundError` (404) | Unknown user in this org, or a receipt id that isn't yours |
-| `UnprocessableEntityError` (422) | The server rejected the target (e.g. a malformed value sent over raw HTTP) |
+| `UnprocessableEntityError` (422) | The server rejected the target (e.g. a memory target without `owner_user_id`, or a malformed value sent over raw HTTP) |
 
 ## Platform operators
 

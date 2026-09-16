@@ -14,7 +14,7 @@ tex.memories.add(
     container_tag: str | None = None,
     scope: str | None = None,
     inactivity_timeout_seconds: int | None = None,   # 1.2.1+
-) -> MemoryWriteResponse     # MemoryWriteResponse(document_id, memories, raw)
+) -> MemoryWriteResponse     # document_id, memories, durable_tier_error, active_tier_error, raw
 ```
 
 Each item: `{"content": str, "isStatic": bool (optional), "metadata": dict (optional, flat)}`. Items without `content` are skipped; if none remain the server returns `400`.
@@ -33,6 +33,8 @@ for m in resp.memories:
 
 `memories.add` creates new ids on every call — it is not idempotent.
 
+If one storage tier failed while the other accepted the write, the call still succeeds and says so: `resp.durable_tier_error` (long-term memory failed) or `resp.active_tier_error` (active memory failed). Both are `None` on success. These attributes need SDK 1.3.1+ and are `None` on servers that don't send them.
+
 `inactivity_timeout_seconds` (SDK 1.2.1+, 300–86,400) sets the [inactivity window](/concepts/memory-model#inactivity-window) of the active-tier episode these memories are written to; it is sent as `inactivityTimeoutSeconds`.
 
 ## `memories.update_memory`
@@ -47,7 +49,8 @@ tex.memories.update_memory(
     metadata: dict | None = None,
     scope: str | None = None,
     inactivity_timeout_seconds: int | None = None,   # 1.2.1+
-) -> MemoryUpdateResponse   # id, memory, version, parent_memory_id, root_memory_id, created_at
+) -> MemoryUpdateResponse   # id, memory, version, parent_memory_id, root_memory_id, created_at,
+                            # superseded, durable_tier_error, active_tier_error (1.3.1+)
 ```
 
 Writes a new version and **retires the one it replaces**. Identify the memory to edit by `id`, or by exact `content`. `new_content` is required. `404` if the memory isn't found.
@@ -81,17 +84,19 @@ To walk a chain, follow `supersededBy` forward from the root, or keep the ids `u
 
 ### When retiring the previous version fails
 
-The edit still returns `200`: the new version is already written, and failing the request would invite a retry that forks the chain into two new versions. The response says what happened instead. The SDK's `MemoryUpdateResponse` doesn't have attributes for these fields yet; read them from `raw`:
+The edit still returns `200`: the new version is already written, and failing the request would invite a retry that forks the chain into two new versions. The response says what happened instead (SDK 1.3.1+):
 
-| Field | Meaning |
+| Attribute | Meaning |
 | --- | --- |
-| `raw["superseded"]` | `True` when the previous version was retired in both tiers |
-| `raw.get("durableTierError")` | Set when the previous version is still live in long-term memory |
-| `raw.get("activeTierError")` | Set when the active-tier write or retirement failed |
+| `superseded` | `True` when the previous version was retired in both tiers; `False` when it may still be returned alongside the new one |
+| `durable_tier_error` | Set when the previous version is still live in long-term memory |
+| `active_tier_error` | Set when the active-tier write or retirement failed |
+
+All three are `None` on servers that don't send them. On SDK 1.3.0, read `resp.raw.get("superseded")`, `"durableTierError"`, and `"activeTierError"`.
 
 ```python
 v3 = tex.memories.update_memory(new_content="…", id=v2.id)
-if not v3.raw.get("superseded"):
+if v3.superseded is False:
     # Don't retry the edit. Remove the old version explicitly instead.
     tex.memories.forget(id=v2.id, reason="superseded")
 ```

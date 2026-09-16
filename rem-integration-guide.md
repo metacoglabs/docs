@@ -2,7 +2,7 @@
 
 _Connect ReM, an on-device context layer for FP&A teams, to Tex with per-user tokens and hierarchical scopes._
 
-> Standalone copy of the Tex docs page `integrations/rem.mdx`. Matches tex-sdk 1.3.0 and https://api.getmetacognition.com.
+> Standalone copy of the Tex docs page `integrations/rem.mdx`. Matches tex-sdk 1.3.1 and https://api.getmetacognition.com.
 
 ReM runs on the analyst's device. It captures working context (notes, model reviews, variance commentary), surfaces it back in the UI, and shares the right slices with the right people: the analyst alone, the FP&A pod, the whole finance team, or everyone on one budget cycle.
 
@@ -14,7 +14,7 @@ Tex holds the memory. ReM never holds a Tex API key. Your backend holds the key 
 - **[End-to-end example](#end-to-end-example)**: Python broker, Python device client, raw HTTP for any language.
 
 > **Note:**
-> Everything on this page matches **tex-sdk 1.3.0** (`pip install tex-sdk==1.3.0`) and the production API at `https://api.getmetacognition.com`. Managing memberships with `tex.scopes` and offboarding with `tex.deletions` need 1.3.0; on older versions, call the same `/me/*` routes over raw HTTP. The inactivity-window arguments need 1.2.1 or later.
+> Everything on this page matches **tex-sdk 1.3.1** (`pip install tex-sdk==1.3.1`) and the production API at `https://api.getmetacognition.com`. Managing memberships with `tex.scopes` and offboarding with `tex.deletions` need 1.3.0 or later; on older versions, call the same `/me/*` routes over raw HTTP. The inactivity-window arguments need 1.2.1 or later.
 
 ## Architecture
 

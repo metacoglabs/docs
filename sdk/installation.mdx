@@ -11,7 +11,7 @@ description: "Install tex-sdk and verify the install."
 ## Install
 
 ```bash
-pip install tex-sdk==1.3.0
+pip install tex-sdk==1.3.1
 ```
 
 Or `uv add tex-sdk` / `poetry add tex-sdk`.
@@ -28,19 +28,19 @@ Or `uv add tex-sdk` / `poetry add tex-sdk`.
 
 ```bash
 python -c "import tex; print(tex.__version__)"
-# 1.3.0
+# 1.3.1
 ```
 
 ## Pin a version
 
 ```text requirements.txt
-tex-sdk>=1.3.0,<2
+tex-sdk>=1.3.1,<2
 ```
 
-For PEP 621 `pyproject.toml`, add `"tex-sdk>=1.3.0,<2"` under `[project].dependencies`. For Poetry, `tex-sdk = "^1.3.0"` under `[tool.poetry.dependencies]`.
+For PEP 621 `pyproject.toml`, add `"tex-sdk>=1.3.1,<2"` under `[project].dependencies`. For Poetry, `tex-sdk = "^1.3.1"` under `[tool.poetry.dependencies]`.
 
 <Warning>
-  Use 1.2.0 or later against production — earlier versions sign per-user clients in through `/auth/login`, which production rejects with `403`. 1.2.1 adds the configurable [inactivity window](/concepts/memory-model#inactivity-window). 1.2.2 fixes the first-call `422` for clients built without `org_id`, `batch_add` results, and adds `RecallResponse.active_tier_error`. 1.3.0 adds [deletions](/sdk/deletions) and [membership management](/sdk/scopes#managing-memberships).
+  Use 1.2.0 or later against production — earlier versions sign per-user clients in through `/auth/login`, which production rejects with `403`. 1.2.1 adds the configurable [inactivity window](/concepts/memory-model#inactivity-window). 1.2.2 fixes the first-call `422` for clients built without `org_id`, `batch_add` results, and adds `RecallResponse.active_tier_error`. 1.3.0 adds [deletions](/sdk/deletions) and [membership management](/sdk/scopes#managing-memberships). 1.3.1 requires `owner_user_id` on `delete_memory` (1.3.0 calls without it deleted nothing) and adds typed tier fields on `memories.add` / `update_memory`.
 </Warning>
 
 ## Optional extras
