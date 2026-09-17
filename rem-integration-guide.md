@@ -778,6 +778,70 @@ Run each check and confirm the result:
 - Non-member C gets `403 scope_not_visible` on `scope="team:fpa-pod"`.
 - A's token with `containerTag` set to B's id gets `403 container_tag_not_permitted`.
 
+## Which key can do what
+
+Your org has two kinds of Tex keys, and they have different jobs:
+
+- **Broker key** (`["impersonate_user"]`) — mints short-lived per-analyst tokens for devices. That is all it should do.
+- **Owner key** (`["*"]`, created at signup) or an **`admin` key** — manages the org: settings, memberships, and deletions. Use it on a client built **without** `user_id`.
+
+| Call | Broker key (`["impersonate_user"]`) | Per-analyst token (minted by the broker) | Owner key (`["*"]`) or `admin` key, client built **without** `user_id` |
+| --- | --- | --- | --- |
+| Delete data (`tex.deletions.*`, `POST /me/deletions`) | `403` | `403` | Allowed |
+| Grant or revoke access (`tex.scopes.grant` / `revoke`, `POST` / `DELETE /me/scope-memberships`) | `403` | `403` | Allowed (`201` for a new grant) |
+| List grants (`tex.scopes.list`, `GET /me/scope-memberships`) | `403` | `403` | Allowed |
+| Immediate purge (`mode="purge"`) | `403` | `403` | Refused (`400` over HTTP; `PurgeNotPermittedError` in the SDK) — Tex reclaims storage for you |
+| Run purges (`/admin/deletions/run-purges`) | `403` | `403` | `403` — Tex runs this |
+
+A deletion aimed at an analyst Tex has no record of (someone who never wrote anything) returns `404`.
+
+The broker key is refused on purpose. It can mint a token for **any** analyst in your org, so letting it erase data or hand out access would put your whole org behind the one key that runs on your token-issuing path. Tokens minted for one analyst are refused too: an analyst can never grant themselves a scope or erase anyone's data, even their own.
+
+## Automating offboarding and access changes
+
+Access changes and offboarding can be fully automated. Run them from a backend admin or offboarding service — for example, triggered by your IdP when an analyst joins a team, changes role, or leaves.
+
+**1. Keep the owner key separate**
+
+Store the owner (or `admin`) key as its own server-side secret, available only to the admin service. Never put it on a device, and never use the broker key for these calls.
+
+**2. Build an admin client without user_id**
+
+```python
+import os
+from tex import Tex
+
+admin = Tex(
+    api_key=os.environ["TEX_OWNER_API_KEY"],
+    base_url="https://api.getmetacognition.com",
+    org_id=os.environ["TEX_ORG_ID"],
+    # no user_id: a client built with user_id gets 403 on these calls
+)
+```
+
+**3. Call the SDK from your automation**
+
+```python
+# Joiner / mover
+admin.scopes.grant("analyst-7f3a", "team:fpa-pod")
+admin.scopes.revoke("analyst-7f3a", "project:budget-cycle-2026")
+
+# Leaver
+admin.deletions.delete_user("analyst-7f3a", reason="offboarding",
+                            idempotency_key="offboard-analyst-7f3a")
+
+# Erasure requests
+admin.deletions.delete_user_scope("analyst-7f3a", reason="erasure request")
+admin.deletions.delete_memory(memory_id, owner_user_id="analyst-7f3a")
+```
+
+- **Deletions take effect immediately.** Deleted content is hidden from every read path — active recall, deep recall, and search — as soon as the call returns.
+- **Membership changes** reach the analyst on their next token refresh — allow up to 1 hour.
+- **Storage reclamation is handled by Tex.** After the retention window (`receipt.purge_after`, 7 days by default), Tex reclaims storage. You don't need to call anything.
+- Use an `idempotency_key` per offboarding so a retried job returns the first receipt instead of running again.
+
+See [Offboarding an analyst](#offboarding-an-analyst) for the full sequence and how to read the receipt.
+
 ## Offboarding an analyst
 
 When an analyst leaves or should lose access, do these in order from the ReM server:
@@ -832,7 +896,7 @@ Deleting one uploaded document or one conversation on its own isn't supported ye
 | `404` on `documents.get` | Wrong id, or a document in a scope or user the analyst can't see | Check the stored id and the write scope. Visibility failures also look like `404`. |
 | `documents.get` status `failed` | Processing failed after automatic retries of transient provider errors | Read `metadata["ingestionError"]`, fix the content if needed, and re-add the document with `documents.add` (new id). Discard the failed id. |
 | `409` on `documents.update` or `documents.delete` | `doc-…` ids from the ingestion pipeline can't be changed or deleted by id | Add a new document version. To remove content, delete the scope or user it was written to |
-| `403` on `/me/scope-memberships` or `/me/deletions` | Called with the broker key, a device token, or a client built with `user_id=` | Use the owner key on a client without `user_id=` |
+| `403` calling deletions or scope grants from the broker key or a device token | The broker key (`["impersonate_user"]`) and per-user tokens can't delete data or change access | Call them from a server-side admin service with the owner or `admin` key, on a client built without `user_id` |
 | `ScopeNotDelegableError` on `scopes.grant` | Granting a `user:` or `org:` scope | Grant a `team:` or `project:` scope; the others are implicit |
 | Deletion receipt `status` is `partial` | Some items were refused (only their owner can delete them) or a store reported errors | Read `tiers.*.refused` and `errors`, then run again with a new `idempotency_key` |
 | `422` with `loc` ending in `timestamp` | A turn has no `timestamp` | Stamp every turn with an ISO-8601 time at capture |

@@ -101,6 +101,14 @@ for m in admin.scopes.list(scope="team:fpa-pod").memberships:
 admin.scopes.revoke("alice", "team:fpa-pod")
 ```
 
+The broker key and per-user tokens can't manage memberships; use the owner or `admin` key on a client built without `user_id=`.
+
+| Caller | Result |
+| --- | --- |
+| Token-broker key (`["impersonate_user"]`) | `403` |
+| Per-user token (a client built with `user_id=`, or a device token) | `403` |
+| Owner key (`["*"]`) or `admin` key, client built **without** `user_id=` | Allowed |
+
 <Warning>
   `tex.scopes` needs an **org admin key** (`admin` or `*`) on a client built **without** `user_id=`. A per-user client — or a token-broker key, or a device token — gets `PermissionDeniedError` (`403`), so a user can never grant themselves a scope. The org is always the key's own org.
 </Warning>

@@ -23,6 +23,14 @@ for gap in receipt.not_covered:
 
 ## Who can delete
 
+The broker key and per-user tokens can't delete; use the owner or `admin` key on a client built without `user_id=`.
+
+| Caller | Result |
+| --- | --- |
+| Token-broker key (`["impersonate_user"]`) | `403` |
+| Per-user token (a client built with `user_id=`, or a device token) | `403` |
+| Owner key (`["*"]`) or `admin` key, client built **without** `user_id=` | Allowed |
+
 Deletion needs an **org admin key** — an API key with the `admin` or `*` scope — on a client built **without** `user_id=`. A per-user token inherits the key's roles but is always refused with `403`, so `Tex(api_key=OWNER_KEY, user_id="alice")` can't delete anything. The org is always the key's own org.
 
 <Warning>

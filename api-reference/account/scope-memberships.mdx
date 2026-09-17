@@ -7,6 +7,12 @@ Memberships decide which shared scopes a user can read and write. Every user imp
 
 All three endpoints require an **org admin** token: exchanged **without** `user_id` from a key with `admin` or `*`. Per-user tokens are refused with `403`, so a user can never grant themselves a scope. The org always comes from the token — an `org_id` in the body is ignored. SDK: [`tex.scopes`](/sdk/scopes#managing-memberships).
 
+| Caller | Result |
+| --- | --- |
+| Token-broker key (`["impersonate_user"]`) | `403` |
+| Per-user token (exchanged with `user_id`, or a device token) | `403` |
+| Owner key (`["*"]`) or `admin` key, exchanged **without** `user_id` | Allowed |
+
 <Warning>
   Call these from a server that holds the org admin key. Never from a token-broker key (`["impersonate_user"]`) or a device token.
 </Warning>

@@ -5,6 +5,12 @@ description: "Soft-delete a memory, a scope, or a user in your org, and fetch th
 
 Both endpoints require an **org admin** token: exchanged **without** `user_id` from a key with `admin` or `*`. Per-user tokens are refused with `403`. The org always comes from the token.
 
+| Caller | Result |
+| --- | --- |
+| Token-broker key (`["impersonate_user"]`) | `403` |
+| Per-user token (exchanged with `user_id`, or a device token) | `403` |
+| Owner key (`["*"]`) or `admin` key, exchanged **without** `user_id` | Allowed |
+
 A deletion hides the target from every read path — active recall, deep recall, search, `GET /v4/memories` — as soon as the request returns, and withdraws its vectors. It is a **soft** delete: storage is reclaimed after the retention window (7 days by default), when Tex runs the purge. See [Deletions](/sdk/deletions) for the model and its limitations.
 
 ## `POST /me/deletions`
