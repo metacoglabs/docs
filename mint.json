@@ -74,6 +74,7 @@
     {
       "group": "Guides",
       "pages": [
+        "concepts/choosing-apis",
         "concepts/memory-model",
         "concepts/retrieval",
         "concepts/scopes",

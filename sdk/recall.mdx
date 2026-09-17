@@ -15,6 +15,10 @@ tex.recall(
 ) -> RecallResponse
 ```
 
+<Tip>
+  **When to use:** before the agent answers — it's the agent's read path. Use `mode="active"` for every turn and `mode="deep"` for older history and documents. For search or list screens, use [`search`](/sdk/search). See [Choosing an API](/concepts/choosing-apis).
+</Tip>
+
 <Note>
   `recall` is callable on the client itself: `tex.recall(...)`. It calls `POST /recall`.
 </Note>

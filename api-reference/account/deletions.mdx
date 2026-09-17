@@ -82,7 +82,7 @@ The receipt:
 
   <Expandable title="tiers">
     <ResponseField name="helixdb" type="object">
-      Long-term memory: `deleted`, `refused` (items only their owner can delete), `skipped_unscoped` (items with no scope, left alone by a shared-scope deletion). For `kind: "memory"`, `status` is `not_found` when nothing was deleted.
+      Long-term memory: `deleted`, `refused` (items only their owner can delete), `skipped_unscoped` (items with no scope, left alone by a shared-scope deletion). For `kind: "memory"`, `status` is `not_found` when nothing was deleted, and the tier also has `episode_events_deleted` (the memory's consolidated episode events removed; always present) and `episode_events_refused` (only when some were refused). An episode-event failure is added to `errors` as `"episode events: …"` and makes the tier and the receipt `partial`.
     </ResponseField>
     <ResponseField name="active_memory" type="object">
       Active memory: `fragments_deleted`, `kv_keys_deleted`, `episodes_tombstoned`, `episodes_deleted`.
@@ -138,7 +138,7 @@ A `memory` target's receipt:
   "target": {"kind": "memory", "value": "<memory id>", "owner_user_id": "alice"},
   "status": "completed",
   "tiers": {
-    "helixdb": {"status": "ok", "errors": [], "deleted": 1, "refused": 0, "skipped_unscoped": 0},
+    "helixdb": {"status": "ok", "errors": [], "deleted": 1, "refused": 0, "skipped_unscoped": 0, "episode_events_deleted": 1},
     "active_memory": {"status": "ok", "errors": [], "tombstones_written": 1},
     "auth_db": {"status": "ok", "errors": [], "scope_memberships_deleted": 0, "episode_registry_deleted": 0, "episode_registry_retained": 0, "usage_events_deleted": 0, "usage_events_retained": 0}
   },

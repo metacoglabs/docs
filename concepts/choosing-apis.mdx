@@ -1,0 +1,333 @@
+---
+title: "Choosing an API"
+description: "Which Tex call to use when: remember, memories, documents, recall, search, scopes, and deletions — plus a typical agent loop and ready-made tool definitions."
+---
+
+Tex has several ways to write and read memory. They differ in **how fast data is visible**, **what gets built from it**, and **how you can edit or delete it later**. Pick by what the data is, not by which call you found first.
+
+## Decision table
+
+| You have… | Use | Visible to `recall` | Built from it | Edit / delete one item |
+| --- | --- | --- | --- | --- |
+| Conversation turns, as they happen | [`conversations.remember`](#conversation-turns) | Immediately (`mode="active"`) | After the conversation goes idle: a summary, episode events, and extracted entities in long-term memory | No — delete by user or scope |
+| A fact, preference, or decision someone asked to keep | [`memories.add`](#explicit-facts) | Immediately; `deep` always finds it | Nothing extra; the item itself is stored | Yes — `update_memory` (versioned), `forget` |
+| A file or long text | [`documents.add`](#files-and-long-text) | After processing, minutes (`mode="deep"`) | Chunks, entities, and relationships in long-term memory | No — delete the scope (`409` on single delete) |
+| A question the agent must answer | [`recall`](#reading-before-answering) | — | — | — |
+| A search box, list, or admin screen for people | [`search.memories` / `search.documents`](#search-screens) | — | — | — |
+| Content for a team or project, not one person | [`scope=` on any write](#personal-or-shared-memory) | Everyone with a membership | — | — |
+| An erasure request or an offboarding | [`tex.deletions`](#erasure-and-offboarding) | — | — | — |
+
+<Note>
+  Every example below uses a **per-user client** — one per end user. See [Per-user clients](#one-client-per-end-user).
+</Note>
+
+## Conversation turns
+
+Use `conversations.remember` for the ongoing conversation: every user message and every agent reply, in batches as they happen.
+
+```python
+tex.conversations.remember(session_id="support-4812", turns=[
+    {"role": "user", "text": "My invoice for March is wrong.", "timestamp": "2026-09-17T09:12:00Z"},
+    {"role": "assistant", "text": "I see a duplicate line for seat licences.", "timestamp": "2026-09-17T09:12:04Z"},
+])
+```
+
+What happens:
+
+1. **Immediately:** each turn (and any `observations` you attach) is stored in active memory and is returned by `recall(mode="active")` on the next call. The turns are also written to long-term memory.
+2. **While the conversation continues:** turns with the same `session_id` join one **episode**.
+3. **After the episode's inactivity window passes with no writes** (30 minutes by default), Tex **consolidates** it: it builds a summary, episode events, and extracted entities and relationships in long-term memory, then clears the episode from active memory. From then on, `recall(mode="deep")` finds it; `mode="active"` doesn't.
+
+Set the window per call with `inactivity_timeout_seconds` (300–86,400), per client with `Tex(active_inactivity_timeout_seconds=...)`, or org-wide with [`PATCH /me/settings`](/api-reference/account/settings). Longer windows keep a working session in fast active memory; shorter ones reach long-term memory sooner. See [Inactivity window](/concepts/memory-model#inactivity-window).
+
+- `session_id` groups turns; it does **not** isolate them. Recall reads every episode the user can see.
+- `role` is `user` or `assistant`; every turn needs an ISO 8601 `timestamp`.
+- **Deleting:** single turns and single conversations can't be deleted yet. Delete the user's personal scope or the shared scope the turns were written to.
+
+Reference: [Remember](/sdk/conversations-remember).
+
+## Explicit facts
+
+Use `memories.add` when the agent or the user **explicitly** wants something kept: "remember I'm vegetarian", "we decided to use the driver-based model", "Alice owns EMEA travel". Unlike `remember`, each fact is its own item that you can find, edit, and delete.
+
+```python
+saved = tex.memories.add([{"content": "Prefers invoices as PDF, not CSV"}])
+fact_id = saved.memories[0].id
+
+# Later: the preference changed
+v2 = tex.memories.update_memory(new_content="Prefers invoices as CSV", id=fact_id)
+
+# Later: the user asks to forget it
+tex.memories.forget(id=v2.id, reason="user request")
+```
+
+- **Immediately durable and recallable:** stored in long-term and active memory at once, and returned by `recall` right away (in `hits.turns`; `mode="deep"` always finds it) and by `search.memories`. `saved.durable_tier_error` / `active_tier_error` (SDK 1.3.1+) say if one tier failed.
+- **Versioned edits:** `update_memory` writes a new version and retires the old one, which stops being returned. The old text stays readable by id with `documents.get(old_id)` (`status: "superseded"`). Always edit the newest id.
+- **Individually deletable:** `forget(id=...)` from the user's client, or [`tex.deletions.delete_memory(id, owner_user_id=...)`](/sdk/deletions) from an admin key when you need a receipt.
+
+| | `remember` | `memories.add` |
+| --- | --- | --- |
+| Shape | Turns in a conversation | Standalone facts |
+| Recall | Immediately (active), deep after consolidation | Immediately; `deep` always finds it |
+| Summaries and entities | Yes, on consolidation | No |
+| Edit one item | No | Yes, versioned |
+| Delete one item | No (by user or scope) | Yes |
+
+Reference: [Memories](/sdk/memories).
+
+## Files and long text
+
+Use `documents.add` (or `batch_add`) for uploaded files, pages, transcripts, and anything long. It runs through the ingestion pipeline: parsing, chunking, and entity and relationship extraction into long-term memory.
+
+```python
+doc = tex.documents.add(pdf_text, scope="project:budget-cycle-2027",
+                        metadata={"filename": "fy27-plan.pdf"})
+
+status = tex.documents.get(doc.id).status   # queued → extracting → chunking → indexing → done | failed
+```
+
+- **Asynchronous:** you get an id at once; processing takes minutes. Poll `documents.get` until `done` (see the polling helper in [Documents](/sdk/documents)). Until then it isn't searchable.
+- **Read it with** `recall(mode="deep")` or `search.documents`. `mode="active"` doesn't search documents.
+- `documents.list` lists memory nodes, not pipeline documents — keep the `doc-…` ids you get back.
+- **Deleting:** a single pipeline document can't be deleted or updated yet (`409`). Put documents you may need to remove in their own `project:` scope and delete that scope when needed.
+
+Reference: [Documents](/sdk/documents).
+
+## Reading before answering
+
+Call `recall` before the agent answers. It searches everything the user can see and returns ranked hits ready for a prompt, plus a `confidence` score.
+
+```python
+resp = tex.recall(q=user_message, session_id=sid)                  # active: fast
+if resp.confidence < 0.3 or "last month" in user_message:  # weak match, or asks about older history
+    resp = tex.recall(q=user_message, session_id=sid, mode="deep")  # + long-term memory
+context = "\n".join(h.text for h in resp.hits.turns)
+```
+
+| Mode | Searches | Use when |
+| --- | --- | --- |
+| `active` (default) | Active memory: open conversations and recent `memories.add` items | Every interactive turn; the fast path |
+| `deep` | Active memory **plus** a vector search of long-term memory, then a second pass with keywords from the first results | The answer needs older conversations or documents, or `active` came back weak |
+
+- `scope="team:fpa-pod"` narrows a read to one scope; without it, recall reads every scope the user can see.
+- `session_id` is required but does **not** filter.
+- If active memory fails, the call doesn't error: it returns what the other tier found (in `deep` mode, long-term memory) and sets `resp.active_tier_error`.
+- `hits.entities` is currently always empty; relationships extracted into the graph aren't returned by recall yet.
+
+Reference: [Recall](/sdk/recall), [Recall and ranking](/concepts/retrieval).
+
+## Search screens
+
+`search.memories` and `search.documents` are for **people and tools**: a memory browser, a "what do you know about me" page, an admin console, a document finder.
+
+- `search.memories` returns individual memory items with `id`, `similarity`, and `version` — what you need to show, edit, or delete them. It applies a `0.6` score threshold by default.
+- `search.documents` returns document chunks with document ids.
+
+An agent's main loop should use `recall`: it returns conversation turns, observations, and facts in one ranked, reranked list with a confidence score and optional timeline. Search returns rows to display, not prompt context.
+
+Reference: [Search](/sdk/search).
+
+## Other resources
+
+| Call | What it's for |
+| --- | --- |
+| `tex.profile(container_tag, q=None)` | A user profile: `static` from stored preferences, `dynamic` from recent episode summaries. Useful for a system-prompt header |
+| `tex.episodes.store(messages, ...)` | Sends a **finished** transcript through the ingestion pipeline (asynchronous, like documents). For live conversations, use `remember` |
+| `tex.episodes.list(limit=50, offset=0, since=None)` | Lists stored conversation episodes |
+| `tex.preferences.store(preferences, ...)` | Sends explicit preferences through the ingestion pipeline; they feed `profile.static`. A `scope=` is checked but not yet applied end-to-end, so these stay personal. For preferences the agent should recall right away, use `memories.add` |
+| `tex.jobs.get(job_id)` | Status of an ingestion-pipeline job |
+| `tex.nlq.execute(question)` | Natural-language query over your knowledge graph |
+| `tex.db.query(query, params=None)` | Raw graph query, for advanced use |
+| `tex.usage.today()` / `summary()` | Token usage. See [Track usage](/sdk/usage) |
+
+## Personal or shared memory
+
+Every write lands in the author's personal `user:<id>` scope unless you say otherwise.
+
+| Write to | When |
+| --- | --- |
+| Personal (default) | Anything about one user: preferences, private notes, their own conversations |
+| `team:<name>` | Working knowledge a team shares: decisions, reviews, runbooks |
+| `project:<name>` | Material for one project across teams — also the unit you delete when the project ends |
+| `org:<org id>` | Org-wide policy everyone should see. Never private data |
+
+```python
+tex = Tex(api_key=KEY, base_url=BASE, user_id="alice", default_scope="team:fpa-pod")
+tex.memories.add([{"content": "FY27 merit assumption is 4%"}])                 # team:fpa-pod
+tex.memories.add([{"content": "I'm out Fridays"}], scope="user:alice")         # personal
+```
+
+- `default_scope` only sets where writes go; reads always span every visible scope unless you pass `scope=`.
+- Who can see a team or project is a **membership**, managed by your org admin key with [`tex.scopes.grant` / `revoke`](/sdk/scopes#managing-memberships). Changes reach the user within an hour.
+
+## Erasure and offboarding
+
+Match the delete to the write path:
+
+| Written with | Remove with |
+| --- | --- |
+| `memories.add` (one fact) | `memories.forget(id=...)` from the user's client, or `tex.deletions.delete_memory(id, owner_user_id=...)` |
+| `conversations.remember` | `tex.deletions.delete_user_scope(user_id)` (personal) or `delete_scope("team:…")` (shared) |
+| `documents.add` | `tex.deletions.delete_scope(...)` for the scope it was written to |
+| Everything about a person leaving | Revoke their memberships, then `tex.deletions.delete_user(user_id)` |
+
+Deletions need the org admin key and return a receipt. Content is hidden immediately; storage is reclaimed later. See [Deletions](/sdk/deletions) for what's covered and the current limitations.
+
+## One client per end user
+
+Build a client with `user_id=` for each end user (the SDK exchanges your key for that user's token). A client built from the key alone acts as **one** identity: every end user served by it reads and writes the same memory, and `session_id` doesn't separate them.
+
+```python
+def tex_for(user_id: str) -> Tex:
+    return Tex(api_key=KEY, base_url=BASE, user_id=user_id)   # cache one per user
+```
+
+See [Per-user clients](/sdk/per-user-clients) and [Multi-tenant SaaS](/recipes/multi-tenant-saas).
+
+## A typical agent loop
+
+<Steps>
+  <Step title="Recall">
+    `recall(q=user_message, session_id=sid)` in `active` mode. Retry with `mode="deep"` when confidence is low or the question is about older history or uploaded documents.
+  </Step>
+  <Step title="Answer">
+    Put `hits.turns` (and `hits.observations`) into the prompt and generate the reply.
+  </Step>
+  <Step title="Remember the exchange">
+    `conversations.remember(...)` with the user's message and the reply. Do it after responding, ideally in a background task.
+  </Step>
+  <Step title="Save explicit facts">
+    If the user asked the agent to remember something, or stated a lasting preference or decision, `memories.add` it.
+  </Step>
+  <Step title="Ingest uploads">
+    For uploaded files, `documents.add` and tell the user the content will be searchable in a few minutes.
+  </Step>
+</Steps>
+
+```python
+import datetime as dt
+
+def now() -> str:
+    return dt.datetime.now(dt.timezone.utc).isoformat()
+
+def handle(user_id: str, sid: str, user_message: str, llm) -> str:
+    tex = tex_for(user_id)
+
+    resp = tex.recall(q=user_message, session_id=sid)
+    if resp.confidence < 0.3:
+        resp = tex.recall(q=user_message, session_id=sid, mode="deep")
+    context = "\n".join(h.text for h in resp.hits.turns)
+
+    reply = llm(system=f"Relevant memory:\n{context}", user=user_message)
+
+    tex.conversations.remember(session_id=sid, turns=[
+        {"role": "user", "text": user_message, "timestamp": now()},
+        {"role": "assistant", "text": reply, "timestamp": now()},
+    ])
+    return reply
+```
+
+See the [FastAPI](/recipes/fastapi) recipe for doing the `remember` step in the background.
+
+## Exposing Tex as agent tools
+
+Many agents work best with a small set of tools and clear instructions on when to call each. These five cover the common cases. The schemas are plain JSON Schema — wrap them in whatever your framework expects (function calling, tool use, MCP, LangChain tools).
+
+```json
+[
+  {
+    "name": "recall",
+    "description": "Look up what you know about this user and their work before answering. Call it for any question that may depend on earlier conversations, saved facts, or uploaded documents. Use depth='deep' for older history, documents, or when the first result is weak.",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "query": {"type": "string", "description": "What you need to know, in natural language."},
+        "depth": {"type": "string", "enum": ["active", "deep"], "default": "active"}
+      },
+      "required": ["query"]
+    }
+  },
+  {
+    "name": "remember",
+    "description": "Store the latest conversation exchange. The application usually calls this automatically after every reply; call it yourself only if you are told to.",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "turns": {"type": "array", "items": {"type": "object", "properties": {
+          "role": {"type": "string", "enum": ["user", "assistant"]},
+          "text": {"type": "string"}}, "required": ["role", "text"]}}
+      },
+      "required": ["turns"]
+    }
+  },
+  {
+    "name": "save_fact",
+    "description": "Save one lasting fact, preference, or decision as its own memory. Call it when the user asks you to remember something, or states something that should hold in future conversations. One fact per call, written as a short standalone sentence. Returns the memory id.",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "fact": {"type": "string"},
+        "shared_with": {"type": "string", "description": "Optional scope such as 'team:fpa-pod' when the fact belongs to a team or project. Omit for personal facts."}
+      },
+      "required": ["fact"]
+    }
+  },
+  {
+    "name": "ingest_document",
+    "description": "Add an uploaded file or long text to memory. Processing takes a few minutes; tell the user it will be searchable soon.",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "text": {"type": "string"},
+        "title": {"type": "string"}
+      },
+      "required": ["text"]
+    }
+  },
+  {
+    "name": "forget_fact",
+    "description": "Delete one saved fact when the user asks you to forget it or it is no longer true (to change a fact, save the new version with save_fact after forgetting the old one). Pass the id returned by save_fact, or the fact's exact saved text.",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "memory_id": {"type": "string"},
+        "exact_text": {"type": "string"}
+      }
+    }
+  }
+]
+```
+
+```python
+import uuid
+
+def run_tool(tex: Tex, sid: str, name: str, args: dict) -> dict:
+    if name == "recall":
+        r = tex.recall(q=args["query"], session_id=sid, mode=args.get("depth", "active"))
+        return {"confidence": r.confidence, "memory": [h.text for h in r.hits.turns]}
+    if name == "remember":
+        turns = [{**t, "timestamp": now()} for t in args["turns"]]
+        tex.conversations.remember(session_id=sid, turns=turns)
+        return {"ok": True}
+    if name == "save_fact":
+        r = tex.memories.add([{"content": args["fact"]}], scope=args.get("shared_with"))
+        return {"memory_id": r.memories[0].id}
+    if name == "ingest_document":
+        meta = {"title": args["title"]} if args.get("title") else None
+        d = tex.documents.add(args["text"], metadata=meta, custom_id=str(uuid.uuid4()))
+        return {"document_id": d.id, "status": d.status}
+    if name == "forget_fact":
+        r = tex.memories.forget(id=args.get("memory_id"), content=args.get("exact_text"))
+        return {"forgotten": r.forgotten}
+    raise ValueError(f"unknown tool {name}")
+```
+
+Guidance to include in the system prompt:
+
+- Call `recall` before answering anything that might depend on the past. Don't call it for small talk.
+- Use `save_fact` only for things meant to last. The conversation itself is already stored.
+- Never save secrets, credentials, or payment details.
+- `forget_fact` removes a saved fact; it can't remove parts of a conversation.
+- Build the tools on a [per-user client](#one-client-per-end-user), so one user's tools can never read another user's memory.
+
+A `save_fact` with `shared_with` returns `403 scope_not_visible` if the user isn't a member of that scope — surface that to the model as a tool error. For framework-specific wiring, see the [LangChain](/recipes/langchain), [Azure OpenAI RAG](/recipes/azure-openai-rag), and [Slack bot](/recipes/slack-bot) recipes.

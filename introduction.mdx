@@ -29,6 +29,10 @@ Tex is the memory layer for AI agents. Stream conversation turns and documents t
   Per-category breakdowns and methodology.
 </Card>
 
+<Card title="Choosing an API: which call to use when" icon="signs-post" href="/concepts/choosing-apis" horizontal>
+  remember vs memories vs documents, recall vs search, scopes, deletions — plus agent tool definitions.
+</Card>
+
 ## The loop
 
 <Steps>
@@ -47,13 +51,16 @@ Tex is the memory layer for AI agents. Stream conversation turns and documents t
     ```
   </Step>
   <Step title="Generate">
-    Drop `context` into your system prompt. Reply. Persist the new turns. Loop.
+    Drop `context` into your system prompt. Reply. Persist the new turns. Loop. Save lasting facts with `memories.add` and files with `documents.add` — see [Choosing an API](/concepts/choosing-apis).
   </Step>
 </Steps>
 
 ## Concepts
 
 <CardGroup cols={2}>
+  <Card title="Choosing an API" icon="signs-post" href="/concepts/choosing-apis">
+    Which call to use when, and a typical agent loop.
+  </Card>
   <Card title="How memory works" icon="brain" href="/concepts/memory-model">
     Active tier, long-term store, episodes, consolidation.
   </Card>

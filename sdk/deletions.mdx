@@ -3,6 +3,10 @@ title: "Deletions"
 description: "Delete a memory, a scope, or a user across every tier, and read the receipt."
 ---
 
+<Tip>
+  **When to use:** erasure requests, offboarding, and closing a project. Match the delete to how the data was written: one `memories.add` fact → `delete_memory` (or `memories.forget`); conversations → `delete_user_scope` / `delete_scope`; documents → `delete_scope`. See [Choosing an API](/concepts/choosing-apis#erasure-and-offboarding).
+</Tip>
+
 `tex.deletions` (SDK 1.3.0+; use 1.3.1) deletes your org's data in one request and returns a **receipt** that says what each store did. Calls `/me/deletions`.
 
 ```python
@@ -77,7 +81,7 @@ tex.deletions.delete_memory(
 `memory_id` is the id `memories.add` returned. `owner_user_id` is **required**: the user the memory was written for (the `container_tag`, or the per-user client's `user_id`). Only the owner can delete a memory, and the server doesn't guess it.
 
 - Omitting `owner_user_id` raises `TypeError`; an empty value raises `ValueError` — both before any request. Over HTTP, a missing owner returns `422`.
-- The memory is removed from long-term memory **and** hidden from active recall, deep recall, and search immediately.
+- The memory is removed from long-term memory **and** hidden from active recall, deep recall, and search immediately. Its own consolidated episode event (if its conversation was already consolidated) is deleted too, and a memory deleted while its conversation is still consolidating is skipped by consolidation.
 - The receipt is `completed` only when both happened. A wrong id or wrong owner comes back `partial` with nothing deleted (`tiers.helixdb.deleted == 0`).
 
 <Warning>
@@ -194,7 +198,7 @@ class DeletionReceipt:
 
 | Tier | Attributes |
 | --- | --- |
-| `tiers.helixdb` (long-term memory) | `status`, `deleted`, `refused`, `skipped_unscoped`, `errors` |
+| `tiers.helixdb` (long-term memory) | `status`, `deleted`, `refused`, `skipped_unscoped`, `errors`. For a single memory, `raw` also has `episode_events_deleted` (always) and `episode_events_refused` (only when some were refused) |
 | `tiers.active_memory` | `status`, `fragments_deleted`, `kv_keys_deleted`, `episodes_tombstoned`, `episodes_deleted`, `errors` |
 | `tiers.auth_db` (grants, routing, billing) | `status`, `scope_memberships_deleted`, `episode_registry_deleted`, `episode_registry_retained`, `usage_events_deleted`, `usage_events_retained`, `errors` |
 
@@ -205,7 +209,7 @@ A tier's `status` is `ok`, `partial`, `error`, or `skipped`; for a single memory
 `status` is `"completed"` when every tier did everything it was asked. It is `"partial"` when:
 
 - **`refused > 0`** — the long-term store wouldn't let the deletion remove some items. Only an item's owner can delete it, so data in a shared scope that belongs to another user can be counted here. Compare `refused` with `deleted` to see how much was left.
-- **`errors` is non-empty** on any tier — a store failed or was unreachable. Each entry says which item or call failed.
+- **`errors` is non-empty** on any tier — a store failed or was unreachable. Each entry says which item or call failed. For a single memory, an entry starting `episode events:` means the memory's consolidated episode event couldn't be deleted (refused or failed).
 - **A single-memory deletion didn't finish in both tiers** — nothing deleted from long-term memory (wrong id, wrong `owner_user_id`, already deleted), or `active_memory.status` isn't `ok` (for example, a conversation turn rather than a `memories.add` memory).
 
 ```python

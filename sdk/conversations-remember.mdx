@@ -14,6 +14,10 @@ tex.conversations.remember(
 ) -> RememberResponse
 ```
 
+<Tip>
+  **When to use:** for the ongoing conversation — every user message and agent reply. Recallable immediately; summarised into long-term memory after the conversation goes idle. For facts someone asked to keep, use [`memories.add`](/sdk/memories); for files, [`documents.add`](/sdk/documents). See [Choosing an API](/concepts/choosing-apis).
+</Tip>
+
 Calls `POST /ingestion/memory`.
 
 ## Parameters

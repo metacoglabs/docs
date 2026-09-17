@@ -5,7 +5,9 @@ description: "Supermemory-compatible document and memory search, and profiles."
 
 `tex.search` is a resource, not a callable. Use `tex.search.documents(...)`, `tex.search.memories(...)`, or the alias `tex.search.execute(...)`.
 
-For conversation memory, prefer [`recall`](/sdk/recall).
+<Tip>
+  **When to use:** search screens, memory browsers, and admin tools — anywhere a person needs rows with ids to show, edit, or delete. An agent's main loop should use [`recall`](/sdk/recall), which returns ranked prompt context across conversations, facts, and documents. See [Choosing an API](/concepts/choosing-apis).
+</Tip>
 
 ## `search.documents`
 

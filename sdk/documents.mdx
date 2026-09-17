@@ -3,6 +3,10 @@ title: "Documents"
 description: "Add documents, poll processing status, list, update, and delete."
 ---
 
+<Tip>
+  **When to use:** for files and long text. Processing is asynchronous (minutes), then the content is found by `recall(mode="deep")` and `search.documents`. Single documents can't be deleted yet — put documents you may need to remove in their own `project:` scope. For short facts, use [`memories.add`](/sdk/memories). See [Choosing an API](/concepts/choosing-apis).
+</Tip>
+
 Documents go through Tex's ingestion pipeline (extraction, chunking, indexing) into the long-term store. Adding is asynchronous: you get an id back immediately and poll for status.
 
 ## `documents.add`

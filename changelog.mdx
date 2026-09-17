@@ -3,6 +3,13 @@ title: "Changelog"
 description: "What's new in the Tex SDK."
 ---
 
+## Server update — 2026-09-17
+
+No SDK release; applies to every SDK version.
+
+- **Deleting a memory also deletes its consolidated episode event.** `delete_memory` (`kind: "memory"`), `memories.forget`, and the step of `memories.update_memory` that retires the previous version now remove the memory's own episode event from long-term memory. Deletion receipts gain `tiers.helixdb.episode_events_deleted` (and `episode_events_refused` when some were refused); failures appear in `errors` as `"episode events: …"` and make the receipt `partial`. `memories.forget` responses can include `durableTierError` / `activeTierError` (omitted when empty) — read them from `resp.raw`.
+- **Deleted memories stay out of long-term memory.** Consolidation skips memories deleted before their conversation consolidated.
+
 ## 1.3.1 — 2026-09-17
 
 **Fixes**
